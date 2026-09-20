@@ -238,6 +238,16 @@
     color: rgba(7,16,22,.68);
   }
 
+  .integration { padding-top: 34px; }
+  .integration-grid { max-width:1380px; margin:0 auto; padding:0 48px; display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .integration-card { min-height:280px; padding:26px; display:flex; flex-direction:column; border:1px solid rgba(255,255,255,.78); border-radius:var(--radius-lg); background:rgba(255,255,255,.43); box-shadow:0 18px 45px rgba(7,16,22,.07),inset 0 1px 0 rgba(255,255,255,.8); backdrop-filter:blur(22px); -webkit-backdrop-filter:blur(22px); }
+  .integration-card h3 { margin:20px 0 10px; font-size:25px; letter-spacing:-.05em; }
+  .integration-card p { margin:0; color:var(--muted); font-size:15px; line-height:1.65; }
+  .integration-card code { margin-top:auto; padding:12px; overflow:auto; border-radius:13px; background:rgba(7,16,22,.92); color:#fff; font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:nowrap; }
+  .runtime-line { margin-top:auto; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px; border-radius:13px; background:rgba(49,252,247,.2); font-size:12px; font-weight:800; }
+  .runtime-line b { padding:6px 8px; border-radius:999px; background:rgba(254,213,35,.7); font-size:11px; }
+  .text-link { margin-top:auto; font-weight:800; text-decoration:underline; text-underline-offset:4px; }
+
   .hero-visual {
     position: relative;
     min-height: 650px;
@@ -640,6 +650,7 @@
       width: min(720px, 100%);
     }
     .cards { grid-template-columns: 1fr; }
+    .integration-grid { grid-template-columns:1fr; }
     .section-head { align-items: start; flex-direction: column; }
     .flow-steps { grid-template-columns: repeat(3,1fr); }
   }
@@ -668,6 +679,7 @@
     .nav-wrap { padding: 0 14px; }
     .nav { height: 62px; padding-left: 16px; }
     .hero, .section, footer { padding-left: 20px; padding-right: 20px; }
+    .integration-grid { padding-left:20px; padding-right:20px; }
     .hero { padding-top: 118px; }
     h1 { font-size: clamp(56px, 18vw, 84px); }
     .hero-copy p { font-size: 18px; }
@@ -700,9 +712,9 @@
 
       <div class="nav-links">
         <a href="#capabilities">能力网络</a>
-        <a href="#workflow">工作流</a>
-        <a href="#about">解决方案</a>
-        <button class="nav-cta open-request" type="button">发起能力调用</button>
+        <a href="#workflow">运行时工作流</a>
+        <a href="#integrate">接入方式</a>
+        <a class="nav-cta" href="#integrate">接入你的 Agent <span>↗</span></a>
       </div>
     </nav>
   </div>
@@ -711,22 +723,22 @@
     <section class="hero">
       <div class="hero-copy">
         <div class="eyebrow reveal"><i></i> HUMAN CAPABILITY LAYER</div>
-        <h1 class="reveal">把 AI 连接到真实的人类能力。</h1>
+        <h1 class="reveal">让你的 Agent，<br>拥有人的能力。</h1>
         <p class="reveal">
-          当 Codex、Claude Code、Cursor、WorkBuddy 遇到 Human Gap 或 Reality Gap，
-          HHBA 帮它们连接 UI、建模、Java 后端与现实执行能力。
+          HHBA 是 Agent 的人类能力调用层。你的 Agent 先完成它能完成的工作；
+          只有遇到 Human Gap，才在你的授权下调用专业人类与现实世界执行能力。
         </p>
 
         <div class="hero-actions reveal">
-          <button class="btn btn-primary open-request" type="button">让 Agent 发起委托 <span>↗</span></button>
-          <a class="btn btn-secondary" href="#capabilities">查看工作流 <span>→</span></a>
+          <a class="btn btn-primary" href="#integrate">接入你的 Agent <span>↗</span></a>
+          <a class="btn btn-secondary" href="#workflow">看一次真实调用 <span>→</span></a>
         </div>
 
         <div class="micro reveal">
-          <span>Agent 先判断</span>
-          <span>主人再授权</span>
-          <span>HHBA 匹配人类</span>
-          <span>结果回到 Agent</span>
+          <span>Agent 自主判断</span>
+          <span>用户拥有授权权</span>
+          <span>HHBA 隐藏供给层</span>
+          <span>成果回到原任务</span>
         </div>
       </div>
 
@@ -738,7 +750,7 @@
           <div class="center-core">
             <div>
               <strong>HHBA</strong>
-              <span>Human Layer</span>
+              <span>Capability Layer</span>
             </div>
           </div>
 
@@ -764,7 +776,7 @@
 
           <div class="capability">
             <div class="capability-line">
-              <strong>HHBA · Human Capability Network</strong>
+              <strong>HHBA · Connected to your Agent</strong>
               <span class="status"><i></i> READY</span>
             </div>
             <div class="capability-tags">
@@ -775,6 +787,33 @@
             </div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section class="section integration" id="integrate">
+      <div class="section-head reveal">
+        <h2>不是来 HHBA 下单。<br>是把 HHBA 装进 Agent。</h2>
+        <p>一次接入，让你的 Agent 在真正需要时生成草案、说明缺口，并把授权交还给用户。</p>
+      </div>
+      <div class="integration-grid">
+        <article class="integration-card reveal">
+          <span class="card-number">01 · CONNECT</span>
+          <h3>添加 HHBA MCP</h3>
+          <p>给 Codex、Claude Code 或你的自定义 Agent 添加一个只读、非计费的人类能力接口。</p>
+          <code>codex mcp add hhba -- node mcp-server.mjs</code>
+        </article>
+        <article class="integration-card reveal">
+          <span class="card-number">02 · RUNTIME</span>
+          <h3>Agent 先做，再判断</h3>
+          <p>只有当专业执行、专家判断、权限或现实世界访问不可替代时，Agent 才提出 Human Gap。</p>
+          <div class="runtime-line"><span>Agent</span><b>发现缺口</b><span>HHBA</span></div>
+        </article>
+        <article class="integration-card reveal">
+          <span class="card-number">03 · CONSENT</span>
+          <h3>用户确认，HHBA 执行</h3>
+          <p>Agent 无法派单或花费。用户在受控浏览器里确认范围后，HHBA 才开始内部能力匹配。</p>
+          <a href="/ops.html" class="text-link">查看内部运营台 →</a>
+        </article>
       </div>
     </section>
 
@@ -835,15 +874,15 @@
     <section class="section workflow" id="workflow">
       <div class="flow-panel reveal">
         <div class="flow-content">
-          <h2>Agent 发现缺口以后，才调用 HHBA。</h2>
+          <h2>真人调用发生在 Agent 运行时，<br>不发生在首页。</h2>
 
           <div class="flow-steps">
-            <div class="step"><b>01</b><span>用户提出目标</span></div>
-            <div class="step"><b>02</b><span>Agent 先自己完成</span></div>
-            <div class="step"><b>03</b><span>检测 Human / Reality Gap</span></div>
-            <div class="step"><b>04</b><span>生成任务草案并询问主人</span></div>
-            <div class="step"><b>05</b><span>HHBA 匹配真实人类能力</span></div>
-            <div class="step"><b>06</b><span>成果 / 证据回到原 Agent</span></div>
+            <div class="step"><b>01</b><span>用户让 Agent 完成目标</span></div>
+            <div class="step"><b>02</b><span>Agent 使用数字工具先做</span></div>
+            <div class="step"><b>03</b><span>Agent 解释 Human Gap</span></div>
+            <div class="step"><b>04</b><span>用户确认任务范围</span></div>
+            <div class="step"><b>05</b><span>HHBA 内部匹配并执行</span></div>
+            <div class="step"><b>06</b><span>交付物回到原 Agent</span></div>
           </div>
         </div>
       </div>
@@ -852,14 +891,14 @@
     <section class="section" id="about">
       <div class="section-head reveal">
         <h2>Human Capability Layer for AI Agents.</h2>
-        <p>判断权给 Agent，花钱与发布的授权权给主人。HHBA 负责把 AI 做不到的部分交给真正合适的人。</p>
+        <p>判断权给 Agent，发布与费用的授权权给主人。HHBA 负责把 AI 做不到的部分交给真正合适的人。</p>
       </div>
     </section>
   </main>
 
   <footer>
-    <strong>HHBA · AI 雇佣人类，不再是未来</strong>
-    <span>Visual direction: #FED523 × #31FCF7 · glass · oversized type</span>
+    <strong>HHBA · Human Capability Layer for AI Agents</strong>
+    <span>Connect once · invoke only when the Agent finds a Human Gap</span>
   </footer>
 </div>
 
