@@ -1,0 +1,15 @@
+{
+  "name": "hhba-human-capability-layer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "api": "node server.js",
+    "mcp": "node mcp-server.mjs",
+    "test:mcp": "node scripts/test-mcp.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.6.5"
+  }
+}

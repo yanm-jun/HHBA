@@ -1,0 +1,8 @@
+[mcp_servers.hhba]
+command = "node"
+args = ["mcp-server.mjs"]
+cwd = "C:\\Users\\Lenovo\\Documents\\Codex\\2026-09-20\\https-github-com-yanm-jun-hhba"
+startup_timeout_sec = 20
+tool_timeout_sec = 30
+default_tools_approval_mode = "prompt"
+enabled_tools = ["draft_human_capability_request", "get_human_capability_request", "get_human_capability_result"]
