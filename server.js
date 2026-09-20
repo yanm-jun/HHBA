@@ -1,9 +1,33 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 
 const requests = new Map();
 const capabilityTypes = new Set(['DIGITAL_EXECUTION', 'EXPERT_JUDGMENT', 'REALITY_EXECUTION']);
 const approvalLifetimeMs = 15 * 60 * 1000;
+const dataDirectory = path.join(process.cwd(), 'data');
+const dataFile = path.join(dataDirectory, 'human-capability-requests.json');
+const internalApiKey = process.env.HHBA_INTERNAL_API_KEY || 'hhba-local-internal-dev-key';
+
+function loadRequests() {
+  try {
+    const saved = JSON.parse(readFileSync(dataFile, 'utf8'));
+    for (const item of saved.requests || []) requests.set(item.id, item);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+function persist() {
+  mkdirSync(dataDirectory, { recursive: true });
+  const temporaryFile = `${dataFile}.${process.pid}.tmp`;
+  writeFileSync(temporaryFile, JSON.stringify({ version: 1, requests: [...requests.values()] }, null, 2));
+  renameSync(temporaryFile, dataFile);
+}
+function audit(item, event, details = {}) {
+  item.updatedAt = new Date().toISOString();
+  item.audit = [...(item.audit || []), { at: item.updatedAt, event, ...details }];
+}
 
 function json(response, status, body) {
   response.writeHead(status, {
@@ -35,7 +59,7 @@ function readBody(request) {
 }
 function list(value) { return Array.isArray(value) ? value.filter(Boolean) : []; }
 function serialize(item) {
-  const { approval, ...safe } = item;
+  const { approval, assignment, audit, ...safe } = item;
   return { ...safe, approval: approval ? {
     status: approval.consumedAt ? 'CONSUMED' : approval.token ? 'ISSUED' : 'AWAITING_BROWSER_CONFIRMATION',
     expiresAt: approval.expiresAt,
@@ -64,7 +88,8 @@ function normalize(input) {
     capabilityRequirements: requirements.length ? requirements : [legacyCapability],
     deliverables: list(input.deliverables).length ? list(input.deliverables) : ['专业成果文件', '交付说明', '验收依据'],
     evidenceRequirements: list(input.evidence_requirements), location: input.location || null, budget: input.budget || null, deadline: input.deadline || null,
-    createdAt: new Date().toISOString(), publishedAt: null, approval: null, deliverableBundle: null
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), publishedAt: null, approval: null, assignment: null, deliverableBundle: null,
+    audit: [{ at: new Date().toISOString(), event: 'DRAFT_CREATED', actor: 'agent' }]
   };
 }
 function find(id, response) {
@@ -72,6 +97,10 @@ function find(id, response) {
   if (!item) json(response, 404, { error: 'human capability request not found' });
   return item;
 }
+function hasInternalAccess(request) { return request.headers['x-hhba-internal-key'] === internalApiKey; }
+function internalRequestView(item) { return { ...serialize(item), assignment: item.assignment, audit: item.audit || [] }; }
+
+loadRequests();
 
 http.createServer(async (request, response) => {
   if (request.method === 'OPTIONS') return json(response, 204, {});
@@ -81,11 +110,44 @@ http.createServer(async (request, response) => {
     try {
       const item = normalize(await readBody(request));
       requests.set(item.id, item);
+      persist();
       return json(response, 201, { id: item.id, status: item.status, proposal: { humanGap: item.humanGap, deliverables: item.deliverables, evidenceRequirements: item.evidenceRequirements, budget: item.budget, deadline: item.deadline }, approvalRequired: true });
     } catch (error) { return json(response, 400, { error: error.message }); }
   }
 
-  const match = request.url.match(/^\/api\/human-capability-requests\/([^/]+)(?:\/(approval-sessions(?:\/([^/]+)\/confirm)?|publish|deliverables|result))?$/);
+  const internalMatch = request.url.match(/^\/internal\/human-capability-requests(?:\/([^/]+)(?:\/(claim|deliver))?)?$/);
+  if (internalMatch) {
+    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    const [, id, action] = internalMatch;
+    if (request.method === 'GET' && !id) return json(response, 200, { requests: [...requests.values()].filter((item) => ['MATCHING_CAPABILITY', 'IN_PROGRESS'].includes(item.status)).map(internalRequestView) });
+    const item = find(id, response);
+    if (!item) return;
+    if (request.method !== 'POST') return json(response, 405, { error: 'method not allowed' });
+    try {
+      const body = await readBody(request);
+      if (action === 'claim') {
+        if (item.status !== 'MATCHING_CAPABILITY') return json(response, 409, { error: `cannot claim from ${item.status}` });
+        const handlerId = String(body.handler_id || '').trim();
+        if (!handlerId) return json(response, 400, { error: 'handler_id is required' });
+        item.status = 'IN_PROGRESS';
+        item.assignment = { handlerId, handlerDisplayName: String(body.handler_display_name || '').trim() || null, claimedAt: new Date().toISOString() };
+        audit(item, 'CAPABILITY_CLAIMED', { actor: handlerId }); persist();
+        return json(response, 201, { requestId: id, status: item.status, assignment: item.assignment });
+      }
+      if (action === 'deliver') {
+        if (item.status !== 'IN_PROGRESS') return json(response, 409, { error: `cannot deliver from ${item.status}` });
+        const artifacts = list(body.artifacts); const evidence = list(body.evidence);
+        if (!artifacts.length && !evidence.length) return json(response, 400, { error: 'artifacts or evidence is required' });
+        item.status = 'DELIVERED';
+        item.deliverableBundle = { submittedAt: new Date().toISOString(), summary: String(body.summary || '').trim(), artifacts, evidence, structuredAnswers: body.structured_answers || {}, acceptanceNotes: String(body.acceptance_notes || '').trim() };
+        audit(item, 'DELIVERABLE_SUBMITTED', { actor: item.assignment?.handlerId || 'hhba-internal' }); persist();
+        return json(response, 201, { requestId: id, status: item.status });
+      }
+      return json(response, 404, { error: 'internal operation not found' });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  const match = request.url.match(/^\/api\/human-capability-requests\/([^/]+)(?:\/(approval-sessions(?:\/([^/]+)\/confirm)?|publish|result))?$/);
   if (match) {
     const [, id, action, approvalSessionId] = match;
     const item = find(id, response);
@@ -106,6 +168,7 @@ http.createServer(async (request, response) => {
         expiresAt: new Date(Date.now() + approvalLifetimeMs).toISOString(),
         browserConfirmedAt: null, consumedAt: null
       };
+      audit(item, 'BROWSER_CONFIRMATION_STARTED', { actor: 'browser' }); persist();
       return jsonWithHeaders(response, 201, { approvalId: sessionId, expiresAt: item.approval.expiresAt, status: item.status }, {
         'Set-Cookie': `hhba_approval_session=${encodeURIComponent(`${sessionId}.${sessionSecret}`)}; HttpOnly; SameSite=Lax; Path=/api/human-capability-requests/${id}/approval-sessions/${sessionId}; Max-Age=${Math.floor(approvalLifetimeMs / 1000)}`
       });
@@ -123,6 +186,7 @@ http.createServer(async (request, response) => {
         approval.browserConfirmedAt = new Date().toISOString();
         approval.token = `hhba_appr_${randomUUID()}`;
         item.status = 'APPROVED_FOR_PUBLISH';
+        audit(item, 'BROWSER_CONSENT_CONFIRMED', { actor: 'browser' }); persist();
         return json(response, 201, { approvalToken: approval.token, expiresAt: approval.expiresAt, status: item.status });
       } catch (error) { return json(response, 400, { error: error.message }); }
     }
@@ -131,17 +195,8 @@ http.createServer(async (request, response) => {
       const valid = approval && !approval.consumedAt && new Date(approval.expiresAt) > new Date() && request.headers['x-hhba-approval-token'] === approval.token;
       if (!valid) return json(response, 403, { error: 'a valid, unexpired backend-issued approval token is required' });
       approval.consumedAt = new Date().toISOString(); item.status = 'MATCHING_CAPABILITY'; item.publishedAt = approval.consumedAt;
+      audit(item, 'PUBLISHED_TO_INTERNAL_MATCHING', { actor: 'browser' }); persist();
       return json(response, 201, { requestId: id, status: item.status, dispatch: 'INTERNAL_HHBA_MATCHING' });
-    }
-    if (action === 'deliverables') {
-      if (!['MATCHING_CAPABILITY', 'IN_PROGRESS'].includes(item.status)) return json(response, 409, { error: `cannot accept deliverables from ${item.status}` });
-      try {
-        const body = await readBody(request); const artifacts = list(body.artifacts); const evidence = list(body.evidence);
-        if (!artifacts.length && !evidence.length) return json(response, 400, { error: 'artifacts or evidence is required' });
-        item.status = 'DELIVERED';
-        item.deliverableBundle = { submittedAt: new Date().toISOString(), summary: String(body.summary || '').trim(), artifacts, evidence, structuredAnswers: body.structured_answers || {}, acceptanceNotes: String(body.acceptance_notes || '').trim() };
-        return json(response, 201, { requestId: id, status: item.status });
-      } catch (error) { return json(response, 400, { error: error.message }); }
     }
   }
   return json(response, 404, { error: 'not found' });

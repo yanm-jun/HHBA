@@ -55,7 +55,7 @@ DRAFT
 2. `POST /:id/approval-sessions` starts a short-lived, HttpOnly browser-bound confirmation session; it does not issue a token.
 3. The user explicitly consents at `POST /:id/approval-sessions/:approvalId/confirm`; only that browser session can receive a short-lived approval token.
 4. `POST /:id/publish` validates and consumes the token, then enters internal matching.
-5. HHBA's internal workers submit a `DeliverableBundle`.
+5. HHBA's internal operations service claims the request, moves it to `IN_PROGRESS`, and submits a `DeliverableBundle` through its protected internal endpoint.
 6. The source agent obtains the bundle from `GET /:id/result` and continues the original work.
 
 ## Tools / HTTP mapping
@@ -67,7 +67,7 @@ DRAFT
 | `get_human_capability_request` | `GET /:id` | No |
 | `get_human_capability_result` | `GET /:id/result` | No |
 
-`submit_deliverable` is an internal HHBA dispatch operation, not a default public agent tool.
+`submit_deliverable` is an internal HHBA dispatch operation, not a public agent tool. The prototype stores requests locally in `data/human-capability-requests.json` so restarts do not erase the lifecycle or audit trail; that directory is intentionally gitignored. For a deployed system, replace it with a transactional database and authenticated, audited internal-service credentials.
 
 ## Agent instruction
 

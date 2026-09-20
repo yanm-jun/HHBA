@@ -47,4 +47,28 @@ const replay = await call(`/${draft.body.id}/publish`, {
 });
 if (replay.response.status !== 403) throw new Error('approval token replay should be denied');
 
-console.log(JSON.stringify({ requestId: draft.body.id, browserConfirmation: 'required', published: published.body.status, replay: 'denied' }));
+const publiclySubmitted = await call(`/${draft.body.id}/deliverables`, { method: 'POST' });
+if (publiclySubmitted.response.status !== 404) throw new Error('public deliverable submission must not exist');
+
+const forbiddenClaim = await fetch(`http://127.0.0.1:8787/internal/human-capability-requests/${draft.body.id}/claim`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ handler_id: 'designer_01' })
+});
+if (forbiddenClaim.status !== 403) throw new Error('internal claim without internal key should be denied');
+
+const internalHeaders = { 'Content-Type': 'application/json', 'X-HHBA-Internal-Key': 'hhba-local-internal-dev-key' };
+const claimResponse = await fetch(`http://127.0.0.1:8787/internal/human-capability-requests/${draft.body.id}/claim`, {
+  method: 'POST', headers: internalHeaders, body: JSON.stringify({ handler_id: 'designer_01', handler_display_name: 'Ming · UI Designer' })
+});
+const claim = await claimResponse.json();
+if (claimResponse.status !== 201 || claim.status !== 'IN_PROGRESS') throw new Error(`internal claim failed: ${JSON.stringify(claim)}`);
+
+const deliveryResponse = await fetch(`http://127.0.0.1:8787/internal/human-capability-requests/${draft.body.id}/deliver`, {
+  method: 'POST', headers: internalHeaders, body: JSON.stringify({ summary: '已交付设计稿。', artifacts: [{ name: 'Figma file', url: 'https://figma.example/file' }], acceptance_notes: '可交给 Agent 继续开发。' })
+});
+const delivery = await deliveryResponse.json();
+if (deliveryResponse.status !== 201 || delivery.status !== 'DELIVERED') throw new Error(`internal delivery failed: ${JSON.stringify(delivery)}`);
+
+const result = await call(`/${draft.body.id}/result`);
+if (result.response.status !== 200 || !result.body.deliverableBundle?.artifacts?.length) throw new Error('agent result retrieval failed');
+
+console.log(JSON.stringify({ requestId: draft.body.id, browserConfirmation: 'required', published: published.body.status, internalClaim: claim.status, delivered: delivery.status, replay: 'denied' }));
