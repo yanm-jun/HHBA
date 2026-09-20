@@ -56,6 +56,12 @@ const forbiddenClaim = await fetch(`http://127.0.0.1:8787/internal/human-capabil
 if (forbiddenClaim.status !== 403) throw new Error('internal claim without internal key should be denied');
 
 const internalHeaders = { 'Content-Type': 'application/json', 'X-HHBA-Internal-Key': 'hhba-local-internal-dev-key' };
+const loginResponse = await fetch('http://127.0.0.1:8787/internal/session', { method: 'POST', headers: internalHeaders });
+const login = await loginResponse.json();
+const operatorCookie = loginResponse.headers.get('set-cookie')?.split(';')[0];
+if (loginResponse.status !== 201 || !operatorCookie?.startsWith('hhba_internal_session=') || login.status !== 'authenticated') throw new Error('internal browser session could not be established');
+const queueResponse = await fetch('http://127.0.0.1:8787/internal/human-capability-requests', { headers: { Cookie: operatorCookie } });
+if (queueResponse.status !== 200) throw new Error('internal browser session could not read the queue');
 const claimResponse = await fetch(`http://127.0.0.1:8787/internal/human-capability-requests/${draft.body.id}/claim`, {
   method: 'POST', headers: internalHeaders, body: JSON.stringify({ handler_id: 'designer_01', handler_display_name: 'Ming · UI Designer' })
 });

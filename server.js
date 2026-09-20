@@ -9,6 +9,8 @@ const approvalLifetimeMs = 15 * 60 * 1000;
 const dataDirectory = path.join(process.cwd(), 'data');
 const dataFile = path.join(dataDirectory, 'human-capability-requests.json');
 const internalApiKey = process.env.HHBA_INTERNAL_API_KEY || 'hhba-local-internal-dev-key';
+const internalSessions = new Map();
+const internalSessionLifetimeMs = 8 * 60 * 60 * 1000;
 
 function loadRequests() {
   try {
@@ -34,7 +36,7 @@ function json(response, status, body) {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': 'http://127.0.0.1:4173',
     'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Headers': 'Content-Type, X-HHBA-Approval-Token',
+    'Access-Control-Allow-Headers': 'Content-Type, X-HHBA-Approval-Token, X-HHBA-Internal-Key',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
   });
   response.end(JSON.stringify(body));
@@ -44,7 +46,7 @@ function jsonWithHeaders(response, status, body, headers = {}) {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': 'http://127.0.0.1:4173',
     'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Headers': 'Content-Type, X-HHBA-Approval-Token',
+    'Access-Control-Allow-Headers': 'Content-Type, X-HHBA-Approval-Token, X-HHBA-Internal-Key',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     ...headers
   });
@@ -97,7 +99,12 @@ function find(id, response) {
   if (!item) json(response, 404, { error: 'human capability request not found' });
   return item;
 }
-function hasInternalAccess(request) { return request.headers['x-hhba-internal-key'] === internalApiKey; }
+function hasInternalAccess(request) {
+  if (request.headers['x-hhba-internal-key'] === internalApiKey) return true;
+  const sessionId = cookies(request).hhba_internal_session;
+  const session = sessionId && internalSessions.get(sessionId);
+  return Boolean(session && new Date(session.expiresAt) > new Date());
+}
 function internalRequestView(item) { return { ...serialize(item), assignment: item.assignment, audit: item.audit || [] }; }
 
 loadRequests();
@@ -113,6 +120,16 @@ http.createServer(async (request, response) => {
       persist();
       return json(response, 201, { id: item.id, status: item.status, proposal: { humanGap: item.humanGap, deliverables: item.deliverables, evidenceRequirements: item.evidenceRequirements, budget: item.budget, deadline: item.deadline }, approvalRequired: true });
     } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  if (request.method === 'POST' && request.url === '/internal/session') {
+    if (request.headers['x-hhba-internal-key'] !== internalApiKey) return json(response, 403, { error: 'invalid HHBA internal key' });
+    const sessionId = `hhba_ops_${randomUUID()}`;
+    const expiresAt = new Date(Date.now() + internalSessionLifetimeMs).toISOString();
+    internalSessions.set(sessionId, { expiresAt });
+    return jsonWithHeaders(response, 201, { status: 'authenticated', expiresAt }, {
+      'Set-Cookie': `hhba_internal_session=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Lax; Path=/internal; Max-Age=${Math.floor(internalSessionLifetimeMs / 1000)}`
+    });
   }
 
   const internalMatch = request.url.match(/^\/internal\/human-capability-requests(?:\/([^/]+)(?:\/(claim|deliver))?)?$/);

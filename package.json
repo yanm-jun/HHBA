@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "api": "node server.js",
+    "ui": "node web-server.js",
     "mcp": "node mcp-server.mjs",
     "test:mcp": "node scripts/test-mcp.mjs",
     "test:approval": "node scripts/test-approval.mjs"
