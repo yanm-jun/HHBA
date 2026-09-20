@@ -1,5 +1,5 @@
-const http = require('http');
-const { randomUUID } = require('crypto');
+import http from 'node:http';
+import { randomUUID } from 'node:crypto';
 
 const requests = new Map();
 const capabilityTypes = new Set(['DIGITAL_EXECUTION', 'EXPERT_JUDGMENT', 'REALITY_EXECUTION']);
@@ -9,7 +9,20 @@ function json(response, status, body) {
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': 'http://127.0.0.1:4173',
-    'Access-Control-Allow-Headers': 'Content-Type, X-HHBA-Approval-Token'
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Headers': 'Content-Type, X-HHBA-Approval-Token',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+  });
+  response.end(JSON.stringify(body));
+}
+function jsonWithHeaders(response, status, body, headers = {}) {
+  response.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Access-Control-Allow-Origin': 'http://127.0.0.1:4173',
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Headers': 'Content-Type, X-HHBA-Approval-Token',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    ...headers
   });
   response.end(JSON.stringify(body));
 }
@@ -23,7 +36,17 @@ function readBody(request) {
 function list(value) { return Array.isArray(value) ? value.filter(Boolean) : []; }
 function serialize(item) {
   const { approval, ...safe } = item;
-  return { ...safe, approval: approval ? { status: approval.consumedAt ? 'CONSUMED' : 'ISSUED', expiresAt: approval.expiresAt } : null };
+  return { ...safe, approval: approval ? {
+    status: approval.consumedAt ? 'CONSUMED' : approval.token ? 'ISSUED' : 'AWAITING_BROWSER_CONFIRMATION',
+    expiresAt: approval.expiresAt,
+    browserConfirmedAt: approval.browserConfirmedAt || null
+  } : null };
+}
+function cookies(request) {
+  return Object.fromEntries(String(request.headers.cookie || '').split(';').map((part) => {
+    const index = part.indexOf('=');
+    return index < 0 ? [] : [part.slice(0, index).trim(), decodeURIComponent(part.slice(index + 1).trim())];
+  }).filter((pair) => pair.length));
 }
 function normalize(input) {
   const goal = String(input.goal || '').trim();
@@ -62,9 +85,9 @@ http.createServer(async (request, response) => {
     } catch (error) { return json(response, 400, { error: error.message }); }
   }
 
-  const match = request.url.match(/^\/api\/human-capability-requests\/([^/]+)(?:\/(approval|publish|deliverables|result))?$/);
+  const match = request.url.match(/^\/api\/human-capability-requests\/([^/]+)(?:\/(approval-sessions(?:\/([^/]+)\/confirm)?|publish|deliverables|result))?$/);
   if (match) {
-    const [, id, action] = match;
+    const [, id, action, approvalSessionId] = match;
     const item = find(id, response);
     if (!item) return;
     if (request.method === 'GET' && !action) return json(response, 200, serialize(item));
@@ -73,11 +96,35 @@ http.createServer(async (request, response) => {
       return json(response, 200, { requestId: id, status: item.status, deliverableBundle: item.deliverableBundle });
     }
     if (request.method !== 'POST') return json(response, 405, { error: 'method not allowed' });
-    if (action === 'approval') {
+    if (action === 'approval-sessions' && !approvalSessionId) {
       if (item.status !== 'DRAFT') return json(response, 409, { error: `cannot request approval from ${item.status}` });
       item.status = 'AWAITING_USER_APPROVAL';
-      item.approval = { token: `hhba_appr_${randomUUID()}`, expiresAt: new Date(Date.now() + approvalLifetimeMs).toISOString(), consumedAt: null };
-      return json(response, 201, { approvalToken: item.approval.token, expiresAt: item.approval.expiresAt, status: item.status });
+      const sessionId = `hhba_browser_${randomUUID()}`;
+      const sessionSecret = randomUUID();
+      item.approval = {
+        sessionId, sessionSecret, token: null,
+        expiresAt: new Date(Date.now() + approvalLifetimeMs).toISOString(),
+        browserConfirmedAt: null, consumedAt: null
+      };
+      return jsonWithHeaders(response, 201, { approvalId: sessionId, expiresAt: item.approval.expiresAt, status: item.status }, {
+        'Set-Cookie': `hhba_approval_session=${encodeURIComponent(`${sessionId}.${sessionSecret}`)}; HttpOnly; SameSite=Lax; Path=/api/human-capability-requests/${id}/approval-sessions/${sessionId}; Max-Age=${Math.floor(approvalLifetimeMs / 1000)}`
+      });
+    }
+    if (approvalSessionId) {
+      try {
+        const body = await readBody(request);
+        const approval = item.approval;
+        const browserSession = cookies(request).hhba_approval_session;
+        const expectedSession = approval && `${approval.sessionId}.${approval.sessionSecret}`;
+        const valid = approval && item.status === 'AWAITING_USER_APPROVAL' && approval.sessionId === approvalSessionId &&
+          new Date(approval.expiresAt) > new Date() && browserSession === expectedSession && body.consent === true;
+        if (!valid) return json(response, 403, { error: 'a valid browser confirmation session and explicit consent are required' });
+        approval.sessionSecret = null;
+        approval.browserConfirmedAt = new Date().toISOString();
+        approval.token = `hhba_appr_${randomUUID()}`;
+        item.status = 'APPROVED_FOR_PUBLISH';
+        return json(response, 201, { approvalToken: approval.token, expiresAt: approval.expiresAt, status: item.status });
+      } catch (error) { return json(response, 400, { error: error.message }); }
     }
     if (action === 'publish') {
       const approval = item.approval;

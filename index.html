@@ -926,7 +926,7 @@
   const consent = document.getElementById('request-consent');
   const publish = document.getElementById('request-publish');
   const result = document.getElementById('request-result');
-  let requestId = '', approvalToken = '';
+  let requestId = '', approvalToken = '', approvalSessionId = '';
 
   document.querySelectorAll('.open-request').forEach((button) => {
     button.addEventListener('click', () => requestDialog.showModal());
@@ -958,19 +958,36 @@
   });
 
   document.getElementById('request-approval').addEventListener('click', async () => {
+    if (!requestId) return alert('请先生成委托草案');
     try {
-      const response = await fetch(`${API_BASE}/api/human-capability-requests/${requestId}/approval`, { method: 'POST' });
+      const response = await fetch(`${API_BASE}/api/human-capability-requests/${requestId}/approval-sessions`, {
+        method: 'POST', credentials: 'include'
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || '无法请求授权');
-      approvalToken = data.approvalToken;
+      approvalSessionId = data.approvalId;
       authorization.classList.add('show');
     } catch (error) { alert(error.message); }
   });
-  consent.addEventListener('change', () => { publish.disabled = !consent.checked; });
+  consent.addEventListener('change', async () => {
+    if (!consent.checked) { publish.disabled = true; return; }
+    if (!approvalSessionId) { consent.checked = false; return alert('请先打开授权确认'); }
+    consent.disabled = true;
+    try {
+      const response = await fetch(`${API_BASE}/api/human-capability-requests/${requestId}/approval-sessions/${approvalSessionId}/confirm`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ consent: true })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '浏览器确认失败');
+      approvalToken = data.approvalToken;
+      publish.disabled = false;
+      publish.textContent = '确认并发布给 HHBA';
+    } catch (error) { consent.checked = false; consent.disabled = false; alert(error.message); }
+  });
   publish.addEventListener('click', async () => {
     try {
       const response = await fetch(`${API_BASE}/api/human-capability-requests/${requestId}/publish`, {
-        method: 'POST', headers: { 'X-HHBA-Approval-Token': approvalToken }
+        method: 'POST', credentials: 'include', headers: { 'X-HHBA-Approval-Token': approvalToken }
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || '发布失败');
@@ -978,6 +995,21 @@
       result.classList.add('show');
     } catch (error) { alert(error.message); }
   });
+
+  const approvalRequestId = new URLSearchParams(location.search).get('approve');
+  if (approvalRequestId) {
+    fetch(`${API_BASE}/api/human-capability-requests/${encodeURIComponent(approvalRequestId)}`, { credentials: 'include' })
+      .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || '无法读取草案'); return data; })
+      .then((data) => {
+        requestId = data.id;
+        requestGoal.value = data.goal;
+        requestCapability.value = data.capabilityRequirements.join(' / ');
+        requestForm.style.display = 'none';
+        proposal.classList.add('show');
+        requestDialog.showModal();
+      })
+      .catch((error) => alert(error.message));
+  }
 </script>
 </body>
 </html>

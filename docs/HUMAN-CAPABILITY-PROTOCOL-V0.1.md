@@ -16,7 +16,7 @@ HHBA is not an agent-facing candidate marketplace. Candidate discovery, reservat
 
 ## Safety invariant
 
-An agent may create a draft but may never authorize expenditure or dispatch by sending an `approved: true` boolean. HHBA must issue a server-side, scope-bound, expiring `approvalToken`; publishing without it is rejected.
+An agent may create a draft but may never authorize expenditure or dispatch by sending an `approved: true` boolean. HHBA must issue a server-side, scope-bound, expiring `approvalToken`; publishing without it is rejected. The token is issued only after an HHBA-controlled browser confirmation session presents the scope and receives explicit consent. An agent/MCP process never receives a browser confirmation cookie or an approval endpoint that can mint a token.
 
 ## Canonical object: HumanCapabilityRequest
 
@@ -45,14 +45,15 @@ For `REALITY_EXECUTION`, additionally provide `location` and `evidence_requireme
 ```text
 DRAFT
   -> AWAITING_USER_APPROVAL
+  -> APPROVED_FOR_PUBLISH
   -> MATCHING_CAPABILITY
   -> IN_PROGRESS
   -> DELIVERED
 ```
 
 1. `POST /api/human-capability-requests/draft` creates a non-billable proposal.
-2. `POST /:id/approval` issues a short-lived approval token.
-3. User explicitly confirms in an HHBA-controlled surface.
+2. `POST /:id/approval-sessions` starts a short-lived, HttpOnly browser-bound confirmation session; it does not issue a token.
+3. The user explicitly consents at `POST /:id/approval-sessions/:approvalId/confirm`; only that browser session can receive a short-lived approval token.
 4. `POST /:id/publish` validates and consumes the token, then enters internal matching.
 5. HHBA's internal workers submit a `DeliverableBundle`.
 6. The source agent obtains the bundle from `GET /:id/result` and continues the original work.
@@ -62,8 +63,7 @@ DRAFT
 | Agent tool | HTTP endpoint | May spend money? |
 | --- | --- | --- |
 | `draft_human_capability_request` | `POST /draft` | No |
-| `request_user_approval` | `POST /:id/approval` | No |
-| `publish_human_capability_request` | `POST /:id/publish` | Only with token |
+| browser confirmation link | HHBA browser surface | No |
 | `get_human_capability_request` | `GET /:id` | No |
 | `get_human_capability_result` | `GET /:id/result` | No |
 

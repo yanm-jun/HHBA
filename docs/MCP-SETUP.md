@@ -6,7 +6,9 @@ The first MCP release intentionally exposes only non-billable tools:
 - `get_human_capability_request`
 - `get_human_capability_result`
 
-It does **not** expose dispatch, candidate selection, scoring, approval-token issuance, or publishing. Those remain HHBA-controlled operations until the approval UX and authentication boundary are production-ready.
+It does **not** expose dispatch, candidate selection, scoring, approval-token issuance, or publishing. A draft response may include an HHBA browser confirmation URL. The URL only opens a review screen: an HttpOnly browser-bound confirmation session plus a user's explicit consent is required before the API issues a one-time publish token.
+
+This is a local prototype boundary, not production authentication. Before a live launch, bind the confirmation session to an authenticated HHBA account, persist audited approvals, and add CSRF/origin protections appropriate to the deployed domain.
 
 ## Local Codex configuration
 

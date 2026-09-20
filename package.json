@@ -6,7 +6,8 @@
   "scripts": {
     "api": "node server.js",
     "mcp": "node mcp-server.mjs",
-    "test:mcp": "node scripts/test-mcp.mjs"
+    "test:mcp": "node scripts/test-mcp.mjs",
+    "test:approval": "node scripts/test-approval.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

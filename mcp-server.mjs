@@ -4,7 +4,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import * as z from 'zod/v4';
 
 const apiBaseUrl = String(process.env.HHBA_API_BASE_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '');
-const instructions = `HHBA is the Human Capability Layer for AI Agents. Use normal digital tools first. When a user goal materially requires professional human execution, expert judgment, permissions, time, or real-world access that you cannot reliably provide, explain the Human Gap and call draft_human_capability_request. This server is in Shadow Mode: it creates only non-billable drafts. Never imply a person has been contacted, never publish or spend money, and never bypass explicit user approval. Return to the user's original task after a deliverable bundle is available.`;
+const approvalWebBaseUrl = String(process.env.HHBA_APPROVAL_WEB_BASE_URL || 'http://127.0.0.1:4173').replace(/\/+$/, '');
+const instructions = `HHBA is the Human Capability Layer for AI Agents. Use normal digital tools first. When a user goal materially requires professional human execution, expert judgment, permissions, time, or real-world access that you cannot reliably provide, explain the Human Gap and call draft_human_capability_request. This MCP server is in Shadow Mode: it creates only non-billable drafts. It may return a browser confirmation URL, but only the user can confirm there; this MCP server cannot publish, spend money, or bypass explicit approval. Never imply a person has been contacted. Return to the user's original task after a deliverable bundle is available.`;
 
 async function api(path, init = {}) {
   const response = await fetch(`${apiBaseUrl}${path}`, {
@@ -42,9 +43,9 @@ server.registerTool('draft_human_capability_request', {
     deadline: z.string().optional()
   },
   annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false }
-}, async (input) => toolResult(await api('/api/human-capability-requests/draft', {
-  method: 'POST',
-  body: JSON.stringify({
+}, async (input) => {
+  const draft = await api('/api/human-capability-requests/draft', {
+    method: 'POST', body: JSON.stringify({
     goal: input.goal,
     agent_context: { source_agent: 'mcp', completed_work: input.completed_work },
     human_gap: { type: input.human_gap_type, reason: input.human_gap_reason },
@@ -55,7 +56,13 @@ server.registerTool('draft_human_capability_request', {
     budget: input.budget,
     deadline: input.deadline
   })
-})));
+  });
+  return toolResult({
+    ...draft,
+    approvalUrl: `${approvalWebBaseUrl}/?approve=${encodeURIComponent(draft.id)}`,
+    nextStep: 'Explain the Human Gap and offer the user this browser confirmation URL. Do not imply the request is published or assigned.'
+  });
+});
 
 server.registerTool('get_human_capability_request', {
   title: 'Get a human capability request',
