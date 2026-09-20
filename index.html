@@ -939,9 +939,15 @@
     button.disabled = true;
     button.textContent = 'Agent 正在生成草案…';
     try {
-      const response = await fetch(`${API_BASE}/api/human-requests/draft`, {
+      const response = await fetch(`${API_BASE}/api/human-capability-requests/draft`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ goal: requestGoal.value, capability: requestCapability.value })
+        body: JSON.stringify({
+          goal: requestGoal.value,
+          agent_context: { source_agent: 'hhba-web-demo', completed_work: [] },
+          human_gap: { type: 'DIGITAL_EXECUTION', reason: '用户请求需要可交付的人类专业成果。' },
+          capability_requirements: [requestCapability.value],
+          deliverables: ['专业成果文件', '交付说明', '验收依据']
+        })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || '草案生成失败');
@@ -953,7 +959,7 @@
 
   document.getElementById('request-approval').addEventListener('click', async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/human-requests/${requestId}/approval`, { method: 'POST' });
+      const response = await fetch(`${API_BASE}/api/human-capability-requests/${requestId}/approval`, { method: 'POST' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || '无法请求授权');
       approvalToken = data.approvalToken;
@@ -963,7 +969,7 @@
   consent.addEventListener('change', () => { publish.disabled = !consent.checked; });
   publish.addEventListener('click', async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/human-requests/${requestId}/publish`, {
+      const response = await fetch(`${API_BASE}/api/human-capability-requests/${requestId}/publish`, {
         method: 'POST', headers: { 'X-HHBA-Approval-Token': approvalToken }
       });
       const data = await response.json();
