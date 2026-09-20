@@ -244,6 +244,11 @@
   .integration-card h3 { margin:20px 0 10px; font-size:25px; letter-spacing:-.05em; }
   .integration-card p { margin:0; color:var(--muted); font-size:15px; line-height:1.65; }
   .integration-card code { margin-top:auto; padding:12px; overflow:auto; border-radius:13px; background:rgba(7,16,22,.92); color:#fff; font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:nowrap; }
+  .integration-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .mini-action { min-height:38px; padding:8px 11px; border:1px solid var(--ink); border-radius:11px; background:var(--ink); color:#fff; font-size:12px; font-weight:750; transition:transform .18s ease,opacity .18s ease; }
+  .mini-action.quiet { background:rgba(255,255,255,.42); color:var(--ink); border-color:rgba(7,16,22,.22); }
+  .mini-action:hover { transform:translateY(-1px); } .mini-action:disabled { cursor:wait; opacity:.58; }
+  .integration-notice { min-height:20px!important; margin:9px 0 0!important; font-size:12px!important; line-height:1.45!important; color:rgba(7,16,22,.66)!important; }
   .runtime-line { margin-top:auto; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px; border-radius:13px; background:rgba(49,252,247,.2); font-size:12px; font-weight:800; }
   .runtime-line b { padding:6px 8px; border-radius:999px; background:rgba(254,213,35,.7); font-size:11px; }
   .text-link { margin-top:auto; font-weight:800; text-decoration:underline; text-underline-offset:4px; }
@@ -801,6 +806,11 @@
           <h3>添加 HHBA MCP</h3>
           <p>给 Codex、Claude Code 或你的自定义 Agent 添加一个只读、非计费的人类能力接口。</p>
           <code>codex mcp add hhba -- node mcp-server.mjs</code>
+          <div class="integration-actions">
+            <button class="mini-action" id="copy-mcp-command" type="button">复制接入命令</button>
+            <button class="mini-action quiet" id="verify-hhba" type="button">检测本地服务</button>
+          </div>
+          <p class="integration-notice" id="connect-notice" aria-live="polite"></p>
         </article>
         <article class="integration-card reveal">
           <span class="card-number">02 · RUNTIME</span>
@@ -812,7 +822,8 @@
           <span class="card-number">03 · CONSENT</span>
           <h3>用户确认，HHBA 执行</h3>
           <p>Agent 无法派单或花费。用户在受控浏览器里确认范围后，HHBA 才开始内部能力匹配。</p>
-          <a href="/ops.html" class="text-link">查看内部运营台 →</a>
+          <a href="/ops.html" class="text-link">打开本地运营台 →</a>
+          <p class="integration-notice">仅限 HHBA 内部人员；本地演示需内部访问密钥。</p>
         </article>
       </div>
     </section>
@@ -1033,6 +1044,29 @@
       result.textContent = `委托 ${data.requestId} 已进入 ${data.status}。HHBA 将开始内部能力匹配，交付物会回到原 Agent。`;
       result.classList.add('show');
     } catch (error) { alert(error.message); }
+  });
+
+  const connectNotice = document.getElementById('connect-notice');
+  document.getElementById('copy-mcp-command').addEventListener('click', async () => {
+    const command = 'codex mcp add hhba -- node mcp-server.mjs';
+    try {
+      await navigator.clipboard.writeText(command);
+      connectNotice.textContent = '已复制。请在 HHBA 项目目录中运行这条命令。';
+    } catch {
+      connectNotice.textContent = `请复制：${command}`;
+    }
+  });
+  document.getElementById('verify-hhba').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true; connectNotice.textContent = '正在检测 HHBA API…';
+    try {
+      const response = await fetch(`${API_BASE}/health`);
+      const data = await response.json();
+      if (!response.ok || data.status !== 'ok') throw new Error('服务未就绪');
+      connectNotice.textContent = `HHBA API 已就绪 · ${data.protocol}。MCP 可以连接。`;
+    } catch {
+      connectNotice.textContent = '未发现本地 HHBA API。请先在项目目录运行 npm run api。';
+    } finally { button.disabled = false; }
   });
 
   const approvalRequestId = new URLSearchParams(location.search).get('approve');
