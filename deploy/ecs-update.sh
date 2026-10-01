@@ -12,7 +12,7 @@ API_SVC="hhba-demo-api"
 WEB_SVC="hhba-demo-web"
 # 应用文件下载源(jsDelivr,国内可达;pin 到 commit 保证 immutable)
 FILE_BASE="https://cdn.jsdelivr.net/gh/yanm-jun/HHBA@e90f7c7"
-APP_FILES="server.js web-server.js package.json package-lock.json index.html approve.html ops.html tasks.html docs.html"
+APP_FILES="server.js web-server.js package.json package-lock.json index.html approve.html ops.html tasks.html docs.html assets/hero-visual.webp assets/tpl-h5.webp assets/tpl-miniprogram.webp assets/tpl-payment.webp"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "请用 root / sudo 运行: sudo bash deploy/ecs-update.sh" >&2
@@ -47,6 +47,11 @@ if [ -d "${APP_DIR}/server" ]; then
   cp "${APP_DIR}/index.html" "${APP_DIR}/approve.html" \
      "${APP_DIR}/ops.html" "${APP_DIR}/tasks.html" \
      "${APP_DIR}/docs.html" "${APP_DIR}/server/"
+  # 同步静态资源(图片等):web.js 从 server/ 提供静态文件
+  if [ -d "${APP_DIR}/assets" ]; then
+    mkdir -p "${APP_DIR}/server/assets"
+    cp -r "${APP_DIR}/assets/"* "${APP_DIR}/server/assets/"
+  fi
 fi
 
 echo "==> 安装依赖"

@@ -28,6 +28,12 @@ body{
 a{color:var(--grape); text-decoration:none}
 .wrap{max-width:1080px; margin:0 auto; padding:0 24px}
 
+/* scroll reveal */
+.reveal{opacity:0; transform:translateY(28px); transition:opacity .7s ease, transform .7s ease}
+.reveal.visible{opacity:1; transform:none}
+.reveal-d1{transition-delay:.1s}.reveal-d2{transition-delay:.2s}.reveal-d3{transition-delay:.3s}
+@media (prefers-reduced-motion: reduce){.reveal{opacity:1; transform:none; transition:none}}
+
 /* nav */
 .nav{position:sticky; top:0; z-index:50; background:rgba(250,250,247,.92); backdrop-filter:blur(12px); border-bottom:1px solid var(--border)}
 .nav-inner{display:flex; align-items:center; justify-content:space-between; height:64px}
@@ -45,15 +51,21 @@ a{color:var(--grape); text-decoration:none}
 @media(max-width:720px){.nav-links{display:none}}
 
 /* hero */
-.hero{padding:96px 0 72px; text-align:center}
-.eyebrow{display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:600; letter-spacing:.08em; color:var(--grape); background:rgba(138,59,236,.08); border:1px solid rgba(138,59,236,.2); border-radius:999px; padding:8px 18px; margin-bottom:28px}
-.eyebrow .dot{width:8px; height:8px; border-radius:50%; background:var(--neon); border:2px solid var(--grape)}
-.hero h1{font-size:clamp(40px,7vw,72px); font-weight:800; line-height:1.2; letter-spacing:-.02em; margin-bottom:20px}
+.hero{padding:88px 0 64px; text-align:center; position:relative; overflow:hidden}
+.hero::before{content:""; position:absolute; inset:0; background:radial-gradient(600px 300px at 50% 0%, rgba(138,59,236,.07), transparent 70%); pointer-events:none}
+.eyebrow{display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:600; letter-spacing:.08em; color:var(--grape); background:rgba(138,59,236,.08); border:1px solid rgba(138,59,236,.2); border-radius:999px; padding:8px 18px; margin-bottom:28px; position:relative}
+.eyebrow .dot{width:8px; height:8px; border-radius:50%; background:var(--neon); border:2px solid var(--grape); animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.3)}}
+.hero h1{font-size:clamp(40px,7vw,72px); font-weight:800; line-height:1.2; letter-spacing:-.02em; margin-bottom:20px; position:relative}
 .hero h1 .hl{color:var(--grape)}
-.hero .sub{font-size:clamp(17px,2.4vw,21px); color:var(--muted); max-width:620px; margin:0 auto 36px; line-height:1.8}
+.hero .sub{font-size:clamp(17px,2.4vw,21px); color:var(--muted); max-width:620px; margin:0 auto 36px; line-height:1.8; position:relative}
 .hero .sub strong{color:var(--text)}
-.hero-cta{display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-bottom:20px}
-.sim-note{font-size:13px; color:var(--faint)}
+.hero-cta{display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-bottom:20px; position:relative}
+.sim-note{font-size:13px; color:var(--faint); position:relative}
+.hero-visual{margin:56px auto 0; max-width:860px; position:relative; animation:float 6s ease-in-out infinite}
+.hero-visual img{width:100%; height:auto; border-radius:20px; box-shadow:0 24px 64px rgba(138,59,236,.14); border:1px solid var(--border)}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+@media (prefers-reduced-motion: reduce){.hero-visual{animation:none}.eyebrow .dot{animation:none}}
 
 /* how */
 .section{padding:72px 0}
@@ -68,30 +80,36 @@ a{color:var(--grape); text-decoration:none}
 .step p{font-size:15px; color:var(--muted); line-height:1.75}
 
 /* talent */
-.talent{background:var(--ink); border-radius:24px; padding:56px 48px; display:grid; grid-template-columns:1fr 1fr; gap:40px; align-items:center; color:#fff}
+.talent{background:var(--ink); border-radius:24px; padding:56px 48px; display:grid; grid-template-columns:1fr 1fr; gap:40px; align-items:center; color:#fff; position:relative; overflow:hidden}
+.talent::before{content:""; position:absolute; inset:0; background:radial-gradient(400px 200px at 80% 20%, rgba(178,252,6,.08), transparent 70%); pointer-events:none}
 @media(max-width:760px){.talent{grid-template-columns:1fr; padding:40px 28px}}
-.talent .big{font-size:64px; font-weight:800; color:var(--neon); line-height:1; margin-bottom:12px}
+.talent .big{font-size:64px; font-weight:800; color:var(--neon); line-height:1; margin-bottom:12px; font-variant-numeric:tabular-nums}
 .talent h3{font-size:22px; font-weight:700; margin-bottom:12px}
 .talent p{color:rgba(255,255,255,.7); font-size:15px; line-height:1.75}
-.talent ul{list-style:none; display:flex; flex-direction:column; gap:12px}
-.talent li{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:16px 20px; font-size:14px; display:flex; justify-content:space-between; align-items:center}
+.talent ul{list-style:none; display:flex; flex-direction:column; gap:12px; position:relative}
+.talent li{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:16px 20px; font-size:14px; display:flex; justify-content:space-between; align-items:center; transition:all .18s ease}
+.talent li:hover{background:rgba(255,255,255,.09); transform:translateX(4px)}
 .talent li .tag{font-weight:700; color:var(--neon); white-space:nowrap; margin-left:12px}
 
 /* templates */
 .tpl-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:20px}
 @media(max-width:760px){.tpl-grid{grid-template-columns:1fr}}
-.tpl{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:28px 24px; transition:all .18s ease}
-.tpl:hover{border-color:var(--grape); transform:translateY(-3px); box-shadow:0 12px 32px rgba(138,59,236,.1)}
-.tpl .icon{font-size:32px; margin-bottom:14px}
+.tpl{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; transition:all .18s ease}
+.tpl:hover{border-color:var(--grape); transform:translateY(-4px); box-shadow:0 16px 40px rgba(138,59,236,.12)}
+.tpl .tpl-img{width:100%; aspect-ratio:16/10; object-fit:cover; display:block}
+.tpl .tpl-body{padding:24px}
 .tpl h3{font-size:17px; font-weight:700; margin-bottom:8px}
 .tpl p{font-size:14px; color:var(--muted); line-height:1.7; margin-bottom:16px}
-.tpl .meta{font-size:13px; color:var(--faint)}
+.tpl .meta{font-size:13px; color:var(--faint); display:flex; align-items:center; gap:6px}
+.tpl .meta::before{content:""; width:6px; height:6px; border-radius:50%; background:var(--neon); border:1.5px solid var(--grape)}
 
 /* cta */
-.cta{background:var(--grape); border-radius:24px; padding:72px 48px; text-align:center; color:#fff}
+.cta{background:var(--grape); border-radius:24px; padding:72px 48px; text-align:center; color:#fff; position:relative; overflow:hidden}
+.cta::before{content:""; position:absolute; inset:0; background:radial-gradient(500px 250px at 50% 100%, rgba(178,252,6,.12), transparent 70%); pointer-events:none}
 @media(max-width:760px){.cta{padding:48px 28px}}
-.cta h2{font-size:clamp(26px,4vw,38px); font-weight:800; margin-bottom:16px; line-height:1.4}
-.cta p{color:rgba(255,255,255,.8); font-size:17px; margin-bottom:32px; max-width:520px; margin-left:auto; margin-right:auto}
+.cta h2{font-size:clamp(26px,4vw,38px); font-weight:800; margin-bottom:16px; line-height:1.4; position:relative}
+.cta p{color:rgba(255,255,255,.8); font-size:17px; margin-bottom:32px; max-width:520px; margin-left:auto; margin-right:auto; position:relative}
+.cta .hero-cta{position:relative}
 .cta .btn-primary{background:#fff; color:var(--grape)}
 .cta .btn-primary:hover{background:var(--neon); color:var(--ink)}
 .cta .btn-outline{border-color:rgba(255,255,255,.5); color:#fff}
@@ -126,23 +144,26 @@ footer{border-top:1px solid var(--border); padding:36px 0; margin-top:72px}
     <a class="btn btn-outline" href="#how">看看怎么运作</a>
   </div>
   <p class="sim-note">当前为积分模拟阶段，全流程记账，不涉及真实资金。</p>
+  <div class="hero-visual">
+    <img src="assets/hero-visual.webp" alt="AI 包工头把任务派给人类执行者" loading="eager">
+  </div>
 </header>
 
 <section class="section wrap" id="how">
-  <h2 class="sec-title">你当老板，AI 当包工头</h2>
-  <p class="sec-sub">一次定好规则，之后就不用管了。规则之内的事，AI 自己说了算。</p>
+  <h2 class="sec-title reveal">你当老板，AI 当包工头</h2>
+  <p class="sec-sub reveal">一次定好规则，之后就不用管了。规则之内的事，AI 自己说了算。</p>
   <div class="steps">
-    <div class="step">
+    <div class="step reveal">
       <div class="num">1</div>
       <h3>定规则</h3>
       <p>单任务预算上限、日月封顶、允许的任务类型、执行者分数门槛，一次设好。</p>
     </div>
-    <div class="step">
+    <div class="step reveal reveal-d1">
       <div class="num">2</div>
       <h3>AI 自动发单</h3>
       <p>你的 AI 在规则内自动拆单、发单、盯进度。超预算或没命中的才来找你确认。</p>
     </div>
-    <div class="step">
+    <div class="step reveal reveal-d2">
       <div class="num">3</div>
       <h3>验收结算</h3>
       <p>真人交付，AI 按标准验收。通过就结算积分，打回就重做，全程记账可查。</p>
@@ -151,9 +172,9 @@ footer{border-top:1px solid var(--border); padding:36px 0; margin-top:72px}
 </section>
 
 <section class="section wrap">
-  <div class="talent">
+  <div class="talent reveal">
     <div>
-      <div class="big">129</div>
+      <div class="big" data-count="129">0</div>
       <h3>位真实执行者，已经在场</h3>
       <p>不是简历库，是真实注册、可接单的人。平台用可靠分给每个人画像：交付越稳，越先被派单。</p>
     </div>
@@ -166,32 +187,38 @@ footer{border-top:1px solid var(--border); padding:36px 0; margin-top:72px}
 </section>
 
 <section class="section wrap" id="templates">
-  <h2 class="sec-title">从模板发单，一分钟搞定</h2>
-  <p class="sec-sub">首发三类真机验证任务，选模板、填目标、定预算，就能发。</p>
+  <h2 class="sec-title reveal">从模板发单，一分钟搞定</h2>
+  <p class="sec-sub reveal">首发三类真机验证任务，选模板、填目标、定预算，就能发。</p>
   <div class="tpl-grid">
-    <div class="tpl">
-      <div class="icon">📱</div>
-      <h3>H5 / 落地页真机走查</h3>
-      <p>在真实手机上打开指定页面，按检查清单走查，截图回传。</p>
-      <div class="meta">建议预算 20–80 积分</div>
+    <div class="tpl reveal">
+      <img class="tpl-img" src="assets/tpl-h5.webp" alt="H5 真机走查" loading="lazy">
+      <div class="tpl-body">
+        <h3>H5 / 落地页真机走查</h3>
+        <p>在真实手机上打开指定页面，按检查清单走查，截图回传。</p>
+        <div class="meta">建议预算 20–80 积分</div>
+      </div>
     </div>
-    <div class="tpl">
-      <div class="icon">🧪</div>
-      <h3>小程序 / App 冒烟测试</h3>
-      <p>按用例在真机上跑核心流程，记录问题并截图留证。</p>
-      <div class="meta">建议预算 30–120 积分</div>
+    <div class="tpl reveal reveal-d1">
+      <img class="tpl-img" src="assets/tpl-miniprogram.webp" alt="小程序冒烟测试" loading="lazy">
+      <div class="tpl-body">
+        <h3>小程序 / App 冒烟测试</h3>
+        <p>按用例在真机上跑核心流程，记录问题并截图留证。</p>
+        <div class="meta">建议预算 30–120 积分</div>
+      </div>
     </div>
-    <div class="tpl">
-      <div class="icon">💳</div>
-      <h3>沙箱表单 / 支付链路验证</h3>
-      <p>在沙箱环境走完表单填写到支付全链路，截图留证。</p>
-      <div class="meta">建议预算 40–150 积分</div>
+    <div class="tpl reveal reveal-d2">
+      <img class="tpl-img" src="assets/tpl-payment.webp" alt="支付链路验证" loading="lazy">
+      <div class="tpl-body">
+        <h3>沙箱表单 / 支付链路验证</h3>
+        <p>在沙箱环境走完表单填写到支付全链路，截图留证。</p>
+        <div class="meta">建议预算 40–150 积分</div>
+      </div>
     </div>
   </div>
 </section>
 
 <section class="section wrap">
-  <div class="cta">
+  <div class="cta reveal">
     <h2>让你的 AI<br>第一次自己雇个人干活</h2>
     <p>定一条策略，发一单真机验证，看看包工头是怎么替你干活的。</p>
     <div class="hero-cta">
@@ -207,6 +234,35 @@ footer{border-top:1px solid var(--border); padding:36px 0; margin-top:72px}
     <span>积分模拟阶段 · 不涉及真实资金结算</span>
   </div>
 </footer>
+
+<script>
+// 滚动显现
+const io = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); } });
+}, { threshold: 0.12 });
+document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+// 数字滚动
+const counter = document.querySelector('[data-count]');
+if (counter) {
+  const target = parseInt(counter.dataset.count, 10);
+  const cio = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (!e.isIntersecting) return;
+      cio.unobserve(e.target);
+      const dur = 1200, t0 = performance.now();
+      const tick = (t) => {
+        const p = Math.min((t - t0) / dur, 1);
+        const eased = 1 - Math.pow(1 - p, 3);
+        counter.textContent = Math.round(target * eased);
+        if (p < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  }, { threshold: 0.5 });
+  cio.observe(counter);
+}
+</script>
 
 </body>
 </html>
