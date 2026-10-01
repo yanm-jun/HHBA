@@ -492,6 +492,116 @@ function persistFeedbacks() {
   writeFileSync(temporaryFile, JSON.stringify({ version: 1, feedbacks }, null, 2));
   renameSync(temporaryFile, feedbackFile);
 }
+
+// ---- v1.0 纠纷模块:三级纠纷处理(双方协商 -> 平台仲裁 -> 终审) ----
+// 纠纷:{id, taskId, executorId, bossId, reason, description, evidence[], status, level,
+//       messages[{id,authorId,authorRole,text,createdAt}], confirmations{executor,boss},
+//       escalatedBy, prevOutcome, history[], level1Deadline,
+//       resolution{outcome,note,decidedBy,decidedAt}, createdAt, updatedAt}
+// status: OPEN(协商中) -> IN_REVIEW(仲裁中) -> RESOLVED(已解决) / ESCALATED(终审中)
+// level: 1=双方协商, 2=平台仲裁, 3=终审
+const DISPUTE_REASONS = {
+  UNFAIR_REJECT: '无理打回',
+  UNCLEAR_CRITERIA: '验收标准不清',
+  PAYMENT_DISPUTE: '结算争议',
+  OTHER: '其他',
+};
+// Level 1 协商时限,默认 48 小时;测试可用 HHBA_DISPUTE_L1_MS 覆盖
+const DISPUTE_L1_MS = Number(process.env.HHBA_DISPUTE_L1_MS) > 0 ? Number(process.env.HHBA_DISPUTE_L1_MS) : 48 * 3600 * 1000;
+const disputesFile = path.join(dataDirectory, 'disputes.json');
+const disputes = new Map();
+function loadDisputes() {
+  try {
+    const saved = JSON.parse(readFileSync(disputesFile, 'utf8'));
+    for (const item of saved.disputes || []) disputes.set(item.id, item);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+function persistDisputes() {
+  mkdirSync(dataDirectory, { recursive: true });
+  const temporaryFile = `${disputesFile}.${process.pid}.tmp`;
+  writeFileSync(temporaryFile, JSON.stringify({ version: 1, disputes: [...disputes.values()] }, null, 2));
+  renameSync(temporaryFile, disputesFile);
+}
+function disputeSystemMessage(d, text) {
+  const now = new Date().toISOString();
+  d.messages.push({ id: `msg_${randomUUID().slice(0, 8)}`, authorId: 'system', authorRole: 'system', text, createdAt: now });
+  return now;
+}
+// 任务是否有关联的进行中纠纷(OPEN / IN_REVIEW / ESCALATED)
+function activeDisputeForTask(taskId) {
+  for (const d of disputes.values()) {
+    if (d.taskId === taskId && ['OPEN', 'IN_REVIEW', 'ESCALATED'].includes(d.status)) return d;
+  }
+  return null;
+}
+// v1.0: Level 1 协商超时未解决,自动升级到 Level 2 平台仲裁
+function checkDisputeEscalation() {
+  const now = Date.now();
+  let escalated = 0;
+  for (const d of disputes.values()) {
+    if (d.status !== 'OPEN' || d.level !== 1) continue;
+    if (!d.level1Deadline || now < new Date(d.level1Deadline).getTime()) continue;
+    d.level = 2;
+    d.status = 'IN_REVIEW';
+    d.updatedAt = disputeSystemMessage(d, 'Level 1 协商超时未达成一致,已自动升级到 Level 2 平台仲裁');
+    escalated++;
+  }
+  if (escalated > 0) persistDisputes();
+  return escalated;
+}
+// 仲裁支持执行者:任务 REWORK -> VERIFIED,从老板处重新冻结预算并结算给执行者
+// 抛错时调用方负责转成 409(老板积分不足等)
+function applyArbitrationExecutorWin(item, dispute) {
+  const handlerId = item.assignment?.handlerId || null;
+  const amount = budgetAmountOf(item) || 0;
+  const now = new Date().toISOString();
+  if (handlerId && amount > 0) {
+    freezeCredits(item.id, amount); // boss -> escrow,余额不足时抛错
+    settleCredits(item.id, amount, handlerId); // escrow -> executor
+    item.frozenAmount = 0;
+    item.arbitrationSettled = amount;
+  }
+  item.status = 'VERIFIED';
+  item.verification = { passed: true, reasons: [], verifiedAt: now, verifiedBy: 'dispute-arbitration', disputeId: dispute.id };
+  audit(item, 'DISPUTE_ARBITRATED', { actor: 'platform', disputeId: dispute.id, decision: 'EXECUTOR' });
+  if (handlerId) {
+    const executor = getExecutor(handlerId);
+    executor.rejectedTasks = Math.max(0, (executor.rejectedTasks || 0) - 1); // 打回被推翻,撤销一次拒收计数
+    executor.completedTasks += 1;
+    adjustReliability(handlerId, 2);
+    syncCompositeScore(handlerId); // v0.8:有反馈时用复合信誉分覆盖
+  }
+  persist();
+  return amount;
+}
+// 终审改判(EXECUTOR -> BOSS):追回仲裁结算,任务 VERIFIED -> REWORK
+function reverseArbitrationExecutorWin(item, dispute) {
+  const handlerId = item.assignment?.handlerId || null;
+  const amount = item.arbitrationSettled || 0;
+  const now = new Date().toISOString();
+  if (handlerId && amount > 0) {
+    const execAccount = `executor:${handlerId}`;
+    const clawed = Math.min(amount, balanceOf(execAccount));
+    ledger.balances[execAccount] = balanceOf(execAccount) - clawed;
+    ledger.balances.boss = balanceOf('boss') + clawed;
+    addLedgerEntry('DISPUTE_CLAWBACK', { requestId: item.id, amount: clawed, from: execAccount, to: 'boss', note: '终审改判,追回仲裁结算' });
+    persistLedger();
+    item.arbitrationSettled = 0;
+  }
+  item.status = 'REWORK';
+  item.verification = { passed: false, reasons: [], verifiedAt: now, verifiedBy: 'dispute-final', disputeId: dispute.id, note: '终审改判,退回返工' };
+  audit(item, 'DISPUTE_FINAL_REVERSED', { actor: 'platform', disputeId: dispute.id, decision: 'BOSS' });
+  if (handlerId) {
+    const executor = getExecutor(handlerId);
+    executor.completedTasks = Math.max(0, (executor.completedTasks || 0) - 1);
+    executor.rejectedTasks = (executor.rejectedTasks || 0) + 1;
+    adjustReliability(handlerId, -2);
+    syncCompositeScore(handlerId);
+  }
+  persist();
+}
 const DAY_MS = 24 * 3600 * 1000;
 // 多时间窗口权重:近30天 60%,30-90天 30%,90天以上 10%
 function timeWindowWeight(createdAt) {
@@ -812,6 +922,7 @@ loadTaskTemplates();
 loadLedger();
 loadExecutors();
 loadFeedbacks();
+loadDisputes();
 loadUsers();
 loadSmtp();
 loadSms();
@@ -1097,6 +1208,7 @@ http.createServer(async (request, response) => {
     if (!item) return;
     if (item.assignment?.handlerId !== session.userId) return json(response, 403, { error: '只能交付自己认领的任务' });
     if (item.status !== 'IN_PROGRESS' && item.status !== 'REWORK') return json(response, 409, { error: `当前状态不可交付:${item.status}` });
+    if (activeDisputeForTask(item.id)) return json(response, 409, { error: '该任务有进行中的纠纷,纠纷结束前不可重新交付' }); // v1.0
     try {
       const body = await readBody(request);
       const artifacts = list(body.artifacts); const evidence = list(body.evidence);
@@ -1492,6 +1604,7 @@ http.createServer(async (request, response) => {
       }
       if (action === 'deliver') {
         if (item.status !== 'IN_PROGRESS' && item.status !== 'REWORK') return json(response, 409, { error: `cannot deliver from ${item.status}` });
+        if (activeDisputeForTask(item.id)) return json(response, 409, { error: '该任务有进行中的纠纷,纠纷结束前不可重新交付' }); // v1.0
         const artifacts = list(body.artifacts); const evidence = list(body.evidence);
         if (!artifacts.length && !evidence.length) return json(response, 400, { error: 'artifacts or evidence is required' });
         // 打回后重新交付:重新冻结预算积分
@@ -1512,6 +1625,236 @@ http.createServer(async (request, response) => {
         return json(response, 201, { requestId: id, status: item.status });
       }
       return json(response, 404, { error: 'internal operation not found' });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  // ---- v1.0 纠纷模块:三级纠纷处理(双方协商 -> 平台仲裁 -> 终审) ----
+  // 发起纠纷(需用户登录):仅执行者可对 REWORK 状态的任务发起
+  if (request.method === 'POST' && request.url === '/api/disputes') {
+    const session = getUserSession(request);
+    if (!session) return json(response, 401, { error: '请先登录' });
+    try {
+      const body = await readBody(request);
+      const taskId = String(body.taskId ?? body.task_id ?? '').trim();
+      const item = requests.get(taskId);
+      if (!item) return json(response, 404, { error: 'human capability request not found' });
+      if (item.status !== 'REWORK') return json(response, 409, { error: `只能对被打回(REWORK)的任务发起纠纷(当前状态:${item.status})` });
+      if (item.assignment?.handlerId !== session.userId) return json(response, 403, { error: '只能对自己执行的任务发起纠纷' });
+      if (activeDisputeForTask(item.id)) return json(response, 409, { error: '该任务已有进行中的纠纷' });
+      const reason = String(body.reason || '').trim();
+      if (!DISPUTE_REASONS[reason]) return json(response, 400, { error: `reason 必须是以下之一: ${Object.keys(DISPUTE_REASONS).join(', ')}` });
+      const description = String(body.description || '').trim();
+      if (!description) return json(response, 400, { error: 'description is required' });
+      const now = new Date().toISOString();
+      const dispute = {
+        id: `dsp_${randomUUID().slice(0, 8)}`,
+        taskId: item.id,
+        executorId: session.userId,
+        bossId: 'boss',
+        reason, description,
+        evidence: list(body.evidence).map((e) => String(e).trim()).filter(Boolean),
+        status: 'OPEN', level: 1,
+        messages: [],
+        confirmations: { executor: false, boss: false },
+        escalatedBy: null, prevOutcome: null, history: [],
+        level1Deadline: new Date(Date.now() + DISPUTE_L1_MS).toISOString(),
+        resolution: null,
+        createdAt: now, updatedAt: now,
+      };
+      disputes.set(dispute.id, dispute);
+      persistDisputes();
+      audit(item, 'DISPUTE_FILED', { actor: session.userId, disputeId: dispute.id, reason });
+      persist();
+      return json(response, 201, { dispute });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  // 我的纠纷列表(需用户登录)
+  if (request.method === 'GET' && request.url === '/api/disputes/mine') {
+    const session = getUserSession(request);
+    if (!session) return json(response, 401, { error: '请先登录' });
+    checkDisputeEscalation();
+    const mine = [...disputes.values()].filter((d) => d.executorId === session.userId);
+    return json(response, 200, { disputes: mine, total: mine.length });
+  }
+
+  // 纠纷详情(需用户登录或 internal key):含留言与关联任务摘要
+  const disputeDetailMatch = request.url.match(/^\/api\/disputes\/([^/]+)$/);
+  if (disputeDetailMatch && request.method === 'GET') {
+    checkDisputeEscalation();
+    const d = disputes.get(decodeURIComponent(disputeDetailMatch[1]).trim());
+    if (!d) return json(response, 404, { error: 'dispute not found' });
+    const session = getUserSession(request);
+    if (!hasInternalAccess(request) && (!session || session.userId !== d.executorId)) {
+      return json(response, 403, { error: '无权查看该纠纷' });
+    }
+    const item = requests.get(d.taskId);
+    return json(response, 200, { dispute: d, task: item ? serialize(item) : null });
+  }
+
+  // 纠纷留言(需用户登录或 internal key):Level 1 协商期双方可留言;internal key 代表老板/平台方
+  const disputeMsgMatch = request.url.match(/^\/api\/disputes\/([^/]+)\/messages$/);
+  if (disputeMsgMatch && request.method === 'POST') {
+    checkDisputeEscalation();
+    const d = disputes.get(decodeURIComponent(disputeMsgMatch[1]).trim());
+    if (!d) return json(response, 404, { error: 'dispute not found' });
+    const session = getUserSession(request);
+    const internal = hasInternalAccess(request);
+    if (!internal && (!session || session.userId !== d.executorId)) {
+      return json(response, 403, { error: '无权参与该纠纷' });
+    }
+    if (d.status !== 'OPEN') return json(response, 409, { error: `当前纠纷状态不可留言:${d.status}` });
+    try {
+      const body = await readBody(request);
+      const text = String(body.text || '').trim();
+      if (!text) return json(response, 400, { error: 'text is required' });
+      if (text.length > 2000) return json(response, 400, { error: '留言过长(最多 2000 字)' });
+      const msg = {
+        id: `msg_${randomUUID().slice(0, 8)}`,
+        authorId: internal ? 'boss' : session.userId,
+        authorRole: internal ? 'boss' : 'executor',
+        text,
+        createdAt: new Date().toISOString(),
+      };
+      d.messages.push(msg);
+      d.updatedAt = msg.createdAt;
+      persistDisputes();
+      return json(response, 201, { message: msg });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  // 协商解决(需用户登录或 internal key):Level 1 双方都确认后关闭纠纷
+  const disputeResolveMatch = request.url.match(/^\/api\/disputes\/([^/]+)\/resolve$/);
+  if (disputeResolveMatch && request.method === 'POST') {
+    checkDisputeEscalation();
+    const d = disputes.get(decodeURIComponent(disputeResolveMatch[1]).trim());
+    if (!d) return json(response, 404, { error: 'dispute not found' });
+    const session = getUserSession(request);
+    const internal = hasInternalAccess(request);
+    if (!internal && (!session || session.userId !== d.executorId)) {
+      return json(response, 403, { error: '无权操作该纠纷' });
+    }
+    if (d.level !== 1 || d.status !== 'OPEN') return json(response, 409, { error: `当前纠纷不可协商解决:${d.level}/${d.status}` });
+    const side = internal ? 'boss' : 'executor';
+    d.confirmations[side] = true;
+    const now = new Date().toISOString();
+    if (d.confirmations.executor && d.confirmations.boss) {
+      d.status = 'RESOLVED';
+      d.resolution = { outcome: 'MUTUAL', note: '双方协商一致', decidedBy: 'mutual', decidedAt: now };
+      d.updatedAt = now;
+      persistDisputes();
+      const item = requests.get(d.taskId);
+      if (item) { audit(item, 'DISPUTE_RESOLVED_MUTUAL', { actor: 'mutual', disputeId: d.id }); persist(); }
+      return json(response, 200, { dispute: d, resolved: true });
+    }
+    d.updatedAt = now;
+    persistDisputes();
+    return json(response, 200, { dispute: d, resolved: false, waitingFor: side === 'executor' ? 'boss' : 'executor' });
+  }
+
+  // 升级/申请终审(需用户登录或 internal key):Level 1 -> Level 2;对 Level 2 仲裁不满 -> Level 3
+  const disputeEscalateMatch = request.url.match(/^\/api\/disputes\/([^/]+)\/escalate$/);
+  if (disputeEscalateMatch && request.method === 'POST') {
+    checkDisputeEscalation();
+    const d = disputes.get(decodeURIComponent(disputeEscalateMatch[1]).trim());
+    if (!d) return json(response, 404, { error: 'dispute not found' });
+    const session = getUserSession(request);
+    const internal = hasInternalAccess(request);
+    if (!internal && (!session || session.userId !== d.executorId)) {
+      return json(response, 403, { error: '无权操作该纠纷' });
+    }
+    const now = new Date().toISOString();
+    const by = internal ? 'boss' : 'executor';
+    if (d.level === 1 && d.status === 'OPEN') {
+      d.level = 2;
+      d.status = 'IN_REVIEW';
+      d.updatedAt = disputeSystemMessage(d, `一方(${by === 'boss' ? '老板' : '执行者'})申请升级,纠纷进入 Level 2 平台仲裁`);
+      persistDisputes();
+      return json(response, 200, { dispute: d });
+    }
+    if (d.level === 2 && d.status === 'RESOLVED' && d.resolution) {
+      d.history.push({ level: 2, resolution: d.resolution, escalatedAt: now, escalatedBy: by });
+      d.prevOutcome = d.resolution.outcome; // 'BOSS' 或 'EXECUTOR'
+      d.resolution = null;
+      d.level = 3;
+      d.status = 'ESCALATED';
+      d.escalatedBy = by;
+      d.updatedAt = disputeSystemMessage(d, `一方(${by === 'boss' ? '老板' : '执行者'})对仲裁不满,已申请 Level 3 终审`);
+      persistDisputes();
+      return json(response, 200, { dispute: d });
+    }
+    return json(response, 409, { error: `当前纠纷不可升级:${d.level}/${d.status}` });
+  }
+
+  // 所有纠纷列表(需 internal key)
+  if (request.method === 'GET' && request.url === '/internal/disputes') {
+    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    checkDisputeEscalation();
+    return json(response, 200, { disputes: [...disputes.values()], total: disputes.size });
+  }
+
+  // 平台仲裁(需 internal key):Level 2 仲裁 / Level 3 终审(可改判)
+  const disputeArbitrateMatch = request.url.match(/^\/internal\/disputes\/([^/]+)\/arbitrate$/);
+  if (disputeArbitrateMatch && request.method === 'POST') {
+    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    checkDisputeEscalation();
+    const d = disputes.get(decodeURIComponent(disputeArbitrateMatch[1]).trim());
+    if (!d) return json(response, 404, { error: 'dispute not found' });
+    try {
+      const body = await readBody(request);
+      const decision = String(body.decision || '').trim();
+      if (!['BOSS', 'EXECUTOR'].includes(decision)) return json(response, 400, { error: "decision 必须是 'BOSS' 或 'EXECUTOR'" });
+      const note = String(body.note || '').trim();
+      const now = new Date().toISOString();
+      const item = requests.get(d.taskId);
+      if (d.level === 2 && d.status === 'IN_REVIEW') {
+        // ---- Level 2 平台仲裁 ----
+        if (decision === 'EXECUTOR') {
+          if (!item) return json(response, 409, { error: '关联任务不存在,无法仲裁' });
+          if (item.status !== 'REWORK') return json(response, 409, { error: `任务状态已变化,无法仲裁:${item.status}` });
+          try {
+            applyArbitrationExecutorWin(item, d);
+          } catch (error) {
+            return json(response, 409, { error: `仲裁结算失败:${error.message}` });
+          }
+          d.resolution = { outcome: 'EXECUTOR', note: note || '仲裁支持执行者,打回不成立,已结算', decidedBy: 'platform', decidedAt: now };
+        } else {
+          // 维持打回:执行者可重新交付;无理纠纷扣执行者 5 分
+          adjustReliability(d.executorId, -5);
+          if (item) { audit(item, 'DISPUTE_ARBITRATED', { actor: 'platform', disputeId: d.id, decision: 'BOSS' }); persist(); }
+          d.resolution = { outcome: 'BOSS', note: note || '仲裁支持老板,维持打回', decidedBy: 'platform', decidedAt: now };
+        }
+        d.status = 'RESOLVED';
+        d.updatedAt = now;
+        persistDisputes();
+        return json(response, 200, { dispute: d });
+      }
+      if (d.level === 3 && d.status === 'ESCALATED') {
+        // ---- Level 3 终审:可维持或改判上一轮结果,为最终结果 ----
+        const prev = d.prevOutcome; // 'BOSS' | 'EXECUTOR'
+        if (decision === 'EXECUTOR' && prev === 'BOSS') {
+          if (!item) return json(response, 409, { error: '关联任务不存在,无法终审' });
+          if (item.status !== 'REWORK') return json(response, 409, { error: `任务状态已变化,无法终审:${item.status}` });
+          try {
+            applyArbitrationExecutorWin(item, d);
+          } catch (error) {
+            return json(response, 409, { error: `终审结算失败:${error.message}` });
+          }
+        } else if (decision === 'BOSS' && prev === 'EXECUTOR') {
+          if (!item) return json(response, 409, { error: '关联任务不存在,无法终审' });
+          if (item.status !== 'VERIFIED') return json(response, 409, { error: `任务状态已变化,无法终审改判:${item.status}` });
+          reverseArbitrationExecutorWin(item, d);
+        }
+        // 终审败诉的升级方:执行者升级又败诉则再扣 5 分(老板方无信誉分可扣)
+        const loser = decision === 'EXECUTOR' ? 'boss' : 'executor';
+        if (d.escalatedBy === loser && loser === 'executor') adjustReliability(d.executorId, -5);
+        d.status = 'RESOLVED';
+        d.resolution = { outcome: decision === 'EXECUTOR' ? 'FINAL_EXECUTOR' : 'FINAL_BOSS', note: note || '终审裁决(最终结果)', decidedBy: 'platform-final', decidedAt: now };
+        d.updatedAt = now;
+        persistDisputes();
+        return json(response, 200, { dispute: d });
+      }
+      return json(response, 409, { error: `当前纠纷不可仲裁:${d.level}/${d.status}` });
     } catch (error) { return json(response, 400, { error: error.message }); }
   }
 
@@ -1596,9 +1939,12 @@ http.createServer(async (request, response) => {
 }).listen(8787, '127.0.0.1', () => console.log('HHBA API listening at http://127.0.0.1:8787'));
 
 // v0.7: 每 5 分钟检查一次超时未验收的任务，自动批准
+// v1.0: 顺带检查 Level 1 协商超时的纠纷，自动升级到平台仲裁
 setInterval(() => {
   try {
     const n = checkAutoApprove();
     if (n > 0) console.log(`[auto-approve] ${n} 个超时任务已自动验收`);
+    const m = checkDisputeEscalation();
+    if (m > 0) console.log(`[dispute] ${m} 个协商超时纠纷已升级到平台仲裁`);
   } catch (e) { console.error('[auto-approve] error:', e.message); }
 }, 5 * 60 * 1000);
