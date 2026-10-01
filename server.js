@@ -509,7 +509,8 @@ function normalize(input) {
     preferredExecutor: preferredExecutorRaw != null && String(preferredExecutorRaw).trim() ? String(preferredExecutorRaw).trim() : null,
     deliverables: list(input.deliverables).length ? list(input.deliverables) : ['专业成果文件', '交付说明', '验收依据'],
     evidenceRequirements: list(input.evidence_requirements), location: input.location || null, budget: input.budget || null, deadline: input.deadline || null,
-    frozenAmount: 0, verification: null,
+    frozenAmount: 0, verification: null, deliveredAt: null,
+    autoApproveHours: Number(input.auto_approve_hours ?? input.autoApproveHours) > 0 ? Number(input.auto_approve_hours ?? input.autoApproveHours) : 72,
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), publishedAt: null, approval: null, assignment: null, deliverableBundle: null,
     audit: [{ at: new Date().toISOString(), event: 'DRAFT_CREATED', actor: 'agent' }]
   };
@@ -518,6 +519,42 @@ function find(id, response) {
   const item = requests.get(id);
   if (!item) json(response, 404, { error: 'human capability request not found' });
   return item;
+}
+// v0.7: 拒收理由枚举（防恶意拒收，拒收必须选理由）
+const REJECT_REASONS = {
+  INCOMPLETE: '交付不完整',
+  QUALITY_FAIL: '质量不达验收标准',
+  LATE: '超时交付',
+  SPAM: '明显零付出/灌水',
+};
+// v0.7: 超时自动批准 — 扫描 DELIVERED 超时的任务，自动验收通过
+function checkAutoApprove() {
+  const now = Date.now();
+  let autoApproved = 0;
+  for (const item of requests.values()) {
+    if (item.status !== 'DELIVERED' || !item.deliveredAt) continue;
+    const hours = item.autoApproveHours ?? 72;
+    if (now - new Date(item.deliveredAt).getTime() < hours * 3600 * 1000) continue;
+    // 超时未验收，自动通过（MTurk 经验：不作为的默认后果应对执行方有利）
+    const verifiedAt = new Date().toISOString();
+    item.status = 'VERIFIED';
+    item.verification = { passed: true, reasons: [], verifiedAt, verifiedBy: 'auto-approve', autoApproved: true };
+    audit(item, 'VERIFY_AUTO_APPROVED', { actor: 'system', reason: `验收超时 ${hours}h 未处理，自动通过` });
+    const handlerId = item.assignment?.handlerId || null;
+    const amount = item.frozenAmount || 0;
+    if (handlerId && amount > 0) {
+      settleCredits(item.id, amount, handlerId);
+      item.frozenAmount = 0;
+    }
+    if (handlerId) {
+      const executor = getExecutor(handlerId);
+      executor.completedTasks += 1;
+      adjustReliability(handlerId, 2);
+    }
+    autoApproved++;
+  }
+  if (autoApproved > 0) persist();
+  return autoApproved;
 }
 function hasInternalAccess(request) {
   if (request.headers['x-hhba-internal-key'] === internalApiKey) return true;
@@ -739,6 +776,7 @@ http.createServer(async (request, response) => {
         audit(item, 'REDELIVERED_AFTER_REWORK', { actor: session.userId });
       }
       item.status = 'DELIVERED';
+      item.deliveredAt = new Date().toISOString();
       item.deliverableBundle = { submittedAt: new Date().toISOString(), summary: String(body.summary || '').trim(), artifacts, evidence, structuredAnswers: body.structured_answers || {}, acceptanceNotes: String(body.acceptance_notes || '').trim() };
       audit(item, 'DELIVERABLE_SUBMITTED', { actor: session.userId }); persist();
       return json(response, 201, { requestId: item.id, status: item.status });
@@ -906,10 +944,12 @@ http.createServer(async (request, response) => {
   }
 
   // 验收环节(需 internal key,即工头调用):DELIVERED -> VERIFIED / REWORK -> DELIVERED
+  // v0.7: 拒收理由必须从枚举中选择；每次验收前先跑一遍超时自动批准
   const verifyMatch = request.url.match(/^\/internal\/tasks\/([^/]+)\/verify$/);
   if (verifyMatch) {
     if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
     if (request.method !== 'POST') return json(response, 405, { error: 'method not allowed' });
+    checkAutoApprove(); // 顺手处理超时的任务
     const [, verifyId] = verifyMatch;
     const item = find(verifyId, response);
     if (!item) return;
@@ -918,6 +958,12 @@ http.createServer(async (request, response) => {
       if (item.status !== 'DELIVERED') return json(response, 409, { error: `cannot verify from ${item.status}` });
       if (typeof body.passed !== 'boolean') return json(response, 400, { error: 'passed (boolean) is required' });
       const reasons = list(body.reasons).map((reason) => String(reason).trim()).filter(Boolean);
+      // v0.7: 拒收时理由必须从枚举中选，防恶意拒收
+      if (!body.passed) {
+        const invalid = reasons.filter((r) => !REJECT_REASONS[r]);
+        if (invalid.length) return json(response, 400, { error: `拒收理由必须是以下之一: ${Object.keys(REJECT_REASONS).join(', ')}；非法值: ${invalid.join(', ')}` });
+        if (!reasons.length) return json(response, 400, { error: `拒收必须选择理由: ${Object.keys(REJECT_REASONS).join(', ')}` });
+      }
       const now = new Date().toISOString();
       const handlerId = item.assignment?.handlerId || null;
       const amount = item.frozenAmount || 0;
@@ -1026,6 +1072,7 @@ http.createServer(async (request, response) => {
           audit(item, 'REDELIVERED_AFTER_REWORK', { actor: item.assignment?.handlerId || 'hhba-internal' });
         }
         item.status = 'DELIVERED';
+        item.deliveredAt = new Date().toISOString();
         item.deliverableBundle = { submittedAt: new Date().toISOString(), summary: String(body.summary || '').trim(), artifacts, evidence, structuredAnswers: body.structured_answers || {}, acceptanceNotes: String(body.acceptance_notes || '').trim() };
         audit(item, 'DELIVERABLE_SUBMITTED', { actor: item.assignment?.handlerId || 'hhba-internal' }); persist();
         return json(response, 201, { requestId: id, status: item.status });
@@ -1113,3 +1160,11 @@ http.createServer(async (request, response) => {
   }
   return json(response, 404, { error: 'not found' });
 }).listen(8787, '127.0.0.1', () => console.log('HHBA API listening at http://127.0.0.1:8787'));
+
+// v0.7: 每 5 分钟检查一次超时未验收的任务，自动批准
+setInterval(() => {
+  try {
+    const n = checkAutoApprove();
+    if (n > 0) console.log(`[auto-approve] ${n} 个超时任务已自动验收`);
+  } catch (e) { console.error('[auto-approve] error:', e.message); }
+}, 5 * 60 * 1000);
