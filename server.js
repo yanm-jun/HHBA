@@ -1,7 +1,8 @@
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { randomUUID, createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, renameSync, writeFileSync, chmodSync } from 'node:fs';
 import path from 'node:path';
+import nodemailer from 'nodemailer';
 
 const requests = new Map();
 const capabilityTypes = new Set(['DIGITAL_EXECUTION', 'EXPERT_JUDGMENT', 'REALITY_EXECUTION']);
@@ -22,6 +23,65 @@ if (!process.env.HHBA_INTERNAL_API_KEY && process.env.HHBA_ALLOW_INSECURE_DEV_KE
 }
 const internalSessions = new Map();
 const internalSessionLifetimeMs = 8 * 60 * 60 * 1000;
+
+// ---- v0.4 用户验证码登录(执行者侧):QQ 邮箱先行,手机短信二期 ----
+const smtpFile = path.join(dataDirectory, 'smtp.json');
+let smtpConfig = null; // {host, port, user, pass}
+function loadSmtp() {
+  try { smtpConfig = JSON.parse(readFileSync(smtpFile, 'utf8')); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; smtpConfig = null; }
+}
+function persistSmtp() {
+  mkdirSync(dataDirectory, { recursive: true });
+  const temporaryFile = `${smtpFile}.${process.pid}.tmp`;
+  writeFileSync(temporaryFile, JSON.stringify(smtpConfig, null, 2));
+  chmodSync(temporaryFile, 0o600);
+  renameSync(temporaryFile, smtpFile);
+}
+const otpStore = new Map(); // contactKey -> {code, expiresAt, attempts, lastSentAt, hourlySent:[ts]}
+const userSessions = new Map(); // sessionId -> {userId, contactKey, displayName, expiresAt}
+const userSessionLifetimeMs = 7 * 24 * 60 * 60 * 1000;
+const OTP_TTL_MS = 5 * 60 * 1000;
+const OTP_DEBUG = process.env.HHBA_OTP_DEBUG === '1'; // 仅本地联调:request-code 会在响应里带上验证码,生产环境绝不开启
+
+function normalizeContact(raw) {
+  const s = String(raw || '').trim();
+  if (/^1\d{10}$/.test(s)) return { type: 'phone', value: s };
+  const email = s.toLowerCase();
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { type: 'email', value: email };
+  return null;
+}
+function maskContact(contact) {
+  if (contact.type === 'phone') return contact.value.slice(0, 3) + '****' + contact.value.slice(7);
+  const [name, domain] = contact.value.split('@');
+  return (name.length <= 3 ? name[0] + '****' : name.slice(0, 3) + '****') + '@' + domain;
+}
+function userIdFor(contact) {
+  return 'usr_' + createHash('sha256').update(contact.type + ':' + contact.value).digest('hex').slice(0, 12);
+}
+function getUserSession(request) {
+  const sessionId = cookies(request).hhba_user_session;
+  const session = sessionId && userSessions.get(sessionId);
+  if (!session || new Date(session.expiresAt) <= new Date()) {
+    if (sessionId) userSessions.delete(sessionId);
+    return null;
+  }
+  return { sessionId, ...session };
+}
+async function sendOtpEmail(to, code) {
+  if (!smtpConfig?.host || !smtpConfig?.user || !smtpConfig?.pass) {
+    throw new Error('邮件通知通道未配置,请先在后台「通知设置」里填写 QQ 邮箱 SMTP');
+  }
+  const transporter = nodemailer.createTransport({
+    host: smtpConfig.host, port: Number(smtpConfig.port) || 465, secure: true,
+    auth: { user: smtpConfig.user, pass: smtpConfig.pass },
+  });
+  await transporter.sendMail({
+    from: `"HHBA" <${smtpConfig.user}>`, to,
+    subject: '【HHBA】登录验证码',
+    text: `您的 HHBA 登录验证码是 ${code},5 分钟内有效。如非本人操作请忽略。`,
+  });
+}
 
 function loadRequests() {
   try {
@@ -338,6 +398,7 @@ loadRequests();
 loadPolicies();
 loadLedger();
 loadExecutors();
+loadSmtp();
 
 http.createServer(async (request, response) => {
   if (request.method === 'OPTIONS') return json(response, 204, {});
@@ -364,6 +425,188 @@ http.createServer(async (request, response) => {
     return jsonWithHeaders(response, 201, { status: 'authenticated', expiresAt }, {
       'Set-Cookie': `hhba_internal_session=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Lax; Path=/internal; Max-Age=${Math.floor(internalSessionLifetimeMs / 1000)}`
     });
+  }
+
+  // ---- v0.4 用户验证码登录 ----
+  if (request.method === 'POST' && request.url === '/api/auth/request-code') {
+    try {
+      const body = await readBody(request);
+      const contact = normalizeContact(body.contact);
+      if (!contact) return json(response, 400, { error: '请输入正确的手机号或邮箱' });
+      if (contact.type === 'phone') {
+        return json(response, 400, { error: '手机短信通道即将上线,请先使用 QQ 邮箱登录' });
+      }
+      const key = contact.type + ':' + contact.value;
+      const now = Date.now();
+      const prev = otpStore.get(key);
+      if (prev && now - prev.lastSentAt < 60 * 1000) {
+        return json(response, 429, { error: '发送太频繁,请 60 秒后再试' });
+      }
+      const hourly = (prev?.hourlySent || []).filter((ts) => now - ts < 60 * 60 * 1000);
+      if (hourly.length >= 5) return json(response, 429, { error: '该邮箱一小时内发送已达上限,请稍后再试' });
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      otpStore.set(key, { code, expiresAt: now + OTP_TTL_MS, attempts: 0, lastSentAt: now, hourlySent: [...hourly, now] });
+      const out = { sentTo: maskContact(contact), expiresIn: OTP_TTL_MS / 1000 };
+      if (OTP_DEBUG && (!smtpConfig?.host || !smtpConfig?.user || !smtpConfig?.pass)) {
+        out.debugCode = code; // 本地联调桩:未配 SMTP 时跳过真实发送,生产环境绝不开启
+        out.stubbed = true;
+        return json(response, 200, out);
+      }
+      try {
+        await sendOtpEmail(contact.value, code);
+      } catch (error) {
+        otpStore.delete(key);
+        return json(response, 502, { error: `验证码发送失败:${error.message}` });
+      }
+      if (OTP_DEBUG) out.debugCode = code;
+      return json(response, 200, out);
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  if (request.method === 'POST' && request.url === '/api/auth/verify') {
+    try {
+      const body = await readBody(request);
+      const contact = normalizeContact(body.contact);
+      const code = String(body.code || '').trim();
+      if (!contact || !/^\d{6}$/.test(code)) return json(response, 400, { error: '邮箱或验证码格式不正确' });
+      const key = contact.type + ':' + contact.value;
+      const record = otpStore.get(key);
+      const now = Date.now();
+      if (!record || now > record.expiresAt) {
+        otpStore.delete(key);
+        return json(response, 400, { error: '验证码已失效,请重新获取' });
+      }
+      if (record.attempts >= 5) {
+        otpStore.delete(key);
+        return json(response, 400, { error: '尝试次数过多,请重新获取验证码' });
+      }
+      if (record.code !== code) {
+        record.attempts += 1;
+        return json(response, 400, { error: `验证码不正确(还剩 ${5 - record.attempts} 次)` });
+      }
+      otpStore.delete(key);
+      const userId = userIdFor(contact);
+      const displayName = maskContact(contact);
+      const executor = getExecutor(userId);
+      if (!executor.displayName) { executor.displayName = displayName; persistExecutors(); }
+      const sessionId = `hhba_user_${randomUUID()}`;
+      const expiresAt = new Date(now + userSessionLifetimeMs).toISOString();
+      userSessions.set(sessionId, { userId, contactKey: key, displayName: executor.displayName, expiresAt });
+      return jsonWithHeaders(response, 200, {
+        user: { id: userId, displayName: executor.displayName, reliabilityScore: executor.reliabilityScore ?? 100, completedTasks: executor.completedTasks ?? 0, rejectedTasks: executor.rejectedTasks ?? 0 },
+      }, {
+        'Set-Cookie': `hhba_user_session=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(userSessionLifetimeMs / 1000)}`,
+      });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  if (request.method === 'GET' && request.url === '/api/auth/me') {
+    const session = getUserSession(request);
+    if (!session) return json(response, 401, { error: '尚未登录' });
+    const executor = getExecutor(session.userId);
+    return json(response, 200, { user: { id: session.userId, displayName: executor.displayName, reliabilityScore: executor.reliabilityScore ?? 100, completedTasks: executor.completedTasks ?? 0, rejectedTasks: executor.rejectedTasks ?? 0 } });
+  }
+
+  if (request.method === 'POST' && request.url === '/api/auth/logout') {
+    const session = getUserSession(request);
+    if (session) userSessions.delete(session.sessionId);
+    return jsonWithHeaders(response, 200, { status: 'logged_out' }, {
+      'Set-Cookie': 'hhba_user_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0',
+    });
+  }
+
+  // 执行者用自己的登录态认领任务(用户侧,无需 internal key)
+  const claimUserMatch = request.url.match(/^\/api\/human-capability-requests\/([^/]+)\/claim-user$/);
+  if (claimUserMatch && request.method === 'POST') {
+    const session = getUserSession(request);
+    if (!session) return json(response, 401, { error: '请先登录后再认领任务' });
+    const item = find(claimUserMatch[1], response);
+    if (!item) return;
+    if (item.status !== 'MATCHING_CAPABILITY') return json(response, 409, { error: `该任务当前不可认领(状态:${item.status})` });
+    const executor = getExecutor(session.userId);
+    item.status = 'IN_PROGRESS';
+    item.assignment = { handlerId: session.userId, handlerDisplayName: executor.displayName, claimedAt: new Date().toISOString() };
+    audit(item, 'CAPABILITY_CLAIMED', { actor: session.userId, via: 'user_login' });
+    persist();
+    return json(response, 200, { requestId: item.id, status: item.status, assignment: item.assignment });
+  }
+
+  // 执行者浏览与交付(用户侧)
+  if (request.method === 'GET' && request.url === '/api/human-capability-requests/open') {
+    const session = getUserSession(request);
+    if (!session) return json(response, 401, { error: '请先登录' });
+    const open = [...requests.values()].filter((i) => i.status === 'MATCHING_CAPABILITY').map(serialize);
+    return json(response, 200, { requests: open });
+  }
+  if (request.method === 'GET' && request.url === '/api/human-capability-requests/mine') {
+    const session = getUserSession(request);
+    if (!session) return json(response, 401, { error: '请先登录' });
+    const mine = [...requests.values()]
+      .filter((i) => i.assignment?.handlerId === session.userId && ['IN_PROGRESS', 'DELIVERED', 'REWORK', 'VERIFIED'].includes(i.status))
+      .map((i) => ({ ...serialize(i), assignment: i.assignment }));
+    return json(response, 200, { requests: mine });
+  }
+  const deliverUserMatch = request.url.match(/^\/api\/human-capability-requests\/([^/]+)\/deliver-user$/);
+  if (deliverUserMatch && request.method === 'POST') {
+    const session = getUserSession(request);
+    if (!session) return json(response, 401, { error: '请先登录' });
+    const item = find(deliverUserMatch[1], response);
+    if (!item) return;
+    if (item.assignment?.handlerId !== session.userId) return json(response, 403, { error: '只能交付自己认领的任务' });
+    if (item.status !== 'IN_PROGRESS' && item.status !== 'REWORK') return json(response, 409, { error: `当前状态不可交付:${item.status}` });
+    try {
+      const body = await readBody(request);
+      const artifacts = list(body.artifacts); const evidence = list(body.evidence);
+      if (!artifacts.length && !evidence.length) return json(response, 400, { error: '请填写交付物或证据' });
+      if (item.status === 'REWORK') {
+        const amount = budgetAmountOf(item);
+        if (amount != null && amount > 0) {
+          try { freezeCredits(item.id, amount); item.frozenAmount = amount; }
+          catch (error) { return json(response, 409, { error: `重新交付需要重新冻结积分:${error.message}` }); }
+        }
+        audit(item, 'REDELIVERED_AFTER_REWORK', { actor: session.userId });
+      }
+      item.status = 'DELIVERED';
+      item.deliverableBundle = { submittedAt: new Date().toISOString(), summary: String(body.summary || '').trim(), artifacts, evidence, structuredAnswers: body.structured_answers || {}, acceptanceNotes: String(body.acceptance_notes || '').trim() };
+      audit(item, 'DELIVERABLE_SUBMITTED', { actor: session.userId }); persist();
+      return json(response, 201, { requestId: item.id, status: item.status });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  // 通知通道设置(需 internal key,即老板在后台自己配,授权码不经手他人)
+  if (request.url === '/internal/settings/smtp') {
+    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    if (request.method === 'GET') {
+      return json(response, 200, {
+        configured: Boolean(smtpConfig?.host && smtpConfig?.user && smtpConfig?.pass),
+        host: smtpConfig?.host || 'smtp.qq.com', port: smtpConfig?.port || 465, user: smtpConfig?.user || '',
+      });
+    }
+    if (request.method === 'POST') {
+      try {
+        const body = await readBody(request);
+        const host = String(body.host || 'smtp.qq.com').trim();
+        const port = Number(body.port) || 465;
+        const user = String(body.user || '').trim();
+        const pass = String(body.pass || '');
+        if (!host || !user || !pass) return json(response, 400, { error: 'host / user / pass 均不能为空' });
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user)) return json(response, 400, { error: 'user 需为邮箱地址' });
+        smtpConfig = { host, port, user, pass };
+        persistSmtp();
+        return json(response, 200, { configured: true, host, port, user });
+      } catch (error) { return json(response, 400, { error: error.message }); }
+    }
+    return json(response, 405, { error: 'method not allowed' });
+  }
+  if (request.method === 'POST' && request.url === '/internal/settings/smtp/test') {
+    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    try {
+      const body = await readBody(request);
+      const to = String(body.to || '').trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return json(response, 400, { error: 'to 需为邮箱地址' });
+      await sendOtpEmail(to, '123456');
+      return json(response, 200, { sentTo: to });
+    } catch (error) { return json(response, 502, { error: `测试发送失败:${error.message}` }); }
   }
 
   // 积分账本查询(需 internal key 或 ops session):余额 + 账本流水

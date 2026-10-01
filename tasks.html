@@ -105,14 +105,15 @@ dialog::backdrop{background:rgba(43,10,78,.55)}
   <section id="login-view" class="login">
     <span class="kicker">EXECUTOR ACCESS · 执行者接单</span>
     <h1>来接活。</h1>
-    <p class="hint">用 HHBA 内部访问密钥建立会话，然后填写你的执行者 ID 开始接单。密钥只用于建会话，不写入页面也不保存在浏览器里。</p>
-    <label class="f" for="internal-key">内部访问密钥</label>
-    <input id="internal-key" type="password" autocomplete="off" placeholder="HHBA_INTERNAL_API_KEY">
-    <label class="f" for="executor-id">你的执行者 ID</label>
-    <input id="executor-id" type="text" autocomplete="off" placeholder="例如 w001">
-    <label class="f" for="executor-name">昵称（可选，首次认领时建档）</label>
-    <input id="executor-name" type="text" autocomplete="off" placeholder="例如 吴其">
-    <div style="margin-top:18px"><button class="btn btn-gold" id="login-btn" style="width:100%;justify-content:center">进入接单页</button></div>
+    <p class="hint">用手机号或 QQ 邮箱登录，验证码 5 分钟内有效。登录后即可认领任务、提交交付。</p>
+    <label class="f" for="contact">手机号 / QQ 邮箱</label>
+    <input id="contact" type="text" autocomplete="off" placeholder="例如 13800001111 或 name@qq.com">
+    <label class="f" for="otp-code">验证码</label>
+    <div style="display:flex;gap:10px">
+      <input id="otp-code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位数字" style="flex:1">
+      <button class="btn btn-ghost" id="get-code" style="white-space:nowrap">获取验证码</button>
+    </div>
+    <div style="margin-top:18px"><button class="btn btn-gold" id="login-btn" style="width:100%;justify-content:center">登录进入</button></div>
     <div class="notice" id="login-notice"></div>
   </section>
 
@@ -196,28 +197,55 @@ const MINE_STATUS = { IN_PROGRESS: ['执行中', 'pill-ice'], REWORK: ['返工�
 let tasks = [], me = { id: '', name: '' };
 const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.6"><path d="M20 6L9 17l-5-5"/></svg>';
 
-/* 登录 */
-$('#login-btn').addEventListener('click', async () => {
-  const notice = $('#login-notice'); notice.className = 'notice'; notice.textContent = '正在建立会话…';
-  const id = $('#executor-id').value.trim();
-  if (!id) { notice.className = 'notice error'; notice.textContent = '请填写你的执行者 ID'; return; }
+/* 登录:手机号 / QQ 邮箱 + 验证码 */
+let codeTimer = null;
+function startCodeCountdown() {
+  const btn = $('#get-code');
+  let s = 60;
+  btn.disabled = true;
+  btn.textContent = `${s}s 后重发`;
+  clearInterval(codeTimer);
+  codeTimer = setInterval(() => {
+    s -= 1;
+    if (s <= 0) { clearInterval(codeTimer); btn.disabled = false; btn.textContent = '获取验证码'; }
+    else btn.textContent = `${s}s 后重发`;
+  }, 1000);
+}
+$('#get-code').addEventListener('click', async () => {
+  const notice = $('#login-notice'); notice.className = 'notice'; notice.textContent = '验证码发送中…';
+  const contact = $('#contact').value.trim();
+  if (!contact) { notice.className = 'notice error'; notice.textContent = '请先填写手机号或 QQ 邮箱'; return; }
   try {
-    await api('/internal/session', { method: 'POST', headers: { 'X-HHBA-Internal-Key': $('#internal-key').value } });
-    me.id = id; me.name = $('#executor-name').value.trim();
-    try { localStorage.setItem('hhba_executor_id', id); if (me.name) localStorage.setItem('hhba_executor_name', me.name); } catch {}
-    $('#internal-key').value = '';
-    $('#me-id').textContent = me.name ? `${me.name}（${me.id}）` : me.id;
-    $('#login-view').hidden = true; $('#app-view').hidden = false; $('#logout').hidden = false;
-    await refreshAll();
+    const data = await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ contact }) });
+    notice.className = 'notice ok';
+    notice.textContent = `验证码已发送至 ${data.sentTo}，5 分钟内有效`;
+    startCodeCountdown();
+    $('#otp-code').focus();
   } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
 });
-try {
-  const savedId = localStorage.getItem('hhba_executor_id'), savedName = localStorage.getItem('hhba_executor_name');
-  if (savedId) $('#executor-id').value = savedId;
-  if (savedName) $('#executor-name').value = savedName;
-} catch {}
-$('#logout').addEventListener('click', () => location.reload());
-$('#switch-id').addEventListener('click', () => { try { localStorage.removeItem('hhba_executor_id'); localStorage.removeItem('hhba_executor_name'); } catch {} location.reload(); });
+function enterApp(user) {
+  me = { id: user.id, name: user.displayName, score: user.reliabilityScore ?? 100, completed: user.completedTasks ?? 0, rejected: user.rejectedTasks ?? 0 };
+  $('#me-id').textContent = user.displayName || user.id;
+  $('#login-view').hidden = true; $('#app-view').hidden = false; $('#logout').hidden = false;
+  refreshAll();
+}
+$('#login-btn').addEventListener('click', async () => {
+  const notice = $('#login-notice'); notice.className = 'notice'; notice.textContent = '登录中…';
+  const contact = $('#contact').value.trim(), code = $('#otp-code').value.trim();
+  if (!contact || !code) { notice.className = 'notice error'; notice.textContent = '请填写邮箱/手机号和验证码'; return; }
+  try {
+    const data = await api('/api/auth/verify', { method: 'POST', body: JSON.stringify({ contact, code }) });
+    enterApp(data.user);
+  } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
+});
+$('#logout').addEventListener('click', async () => { try { await api('/api/auth/logout', { method: 'POST' }); } catch {} location.reload(); });
+$('#switch-id').addEventListener('click', async () => { try { await api('/api/auth/logout', { method: 'POST' }); } catch {} location.reload(); });
+(async () => {
+  try {
+    const data = await api('/api/auth/me');
+    if (data.user) enterApp(data.user);
+  } catch {}
+})();
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach((x) => x.classList.remove('active'));
   t.classList.add('active');
@@ -244,9 +272,7 @@ async function claimTask(id) {
   const btn = document.querySelector(`.claim-btn[data-id="${CSS.escape(id)}"]`);
   if (btn) btn.disabled = true;
   try {
-    await api(`/internal/human-capability-requests/${encodeURIComponent(id)}/claim`, {
-      method: 'POST', body: JSON.stringify({ handler_id: me.id, handler_display_name: me.name || undefined })
-    });
+    await api(`/api/human-capability-requests/${encodeURIComponent(id)}/claim-user`, { method: 'POST' });
     await refreshAll();
     document.querySelector('.tab[data-tab="mine"]').click();
   } catch (e) { alert(e.message); if (btn) btn.disabled = false; }
@@ -298,7 +324,7 @@ $('#deliver-form').addEventListener('submit', async (e) => {
     notice.className = 'notice error'; notice.textContent = '交付物或佐证至少填一项'; return;
   }
   try {
-    await api(`/internal/human-capability-requests/${encodeURIComponent(id)}/deliver`, { method: 'POST', body: JSON.stringify(payload) });
+    await api(`/api/human-capability-requests/${encodeURIComponent(id)}/deliver-user`, { method: 'POST', body: JSON.stringify(payload) });
     notice.textContent = '交付成功，等待工头验收。';
     setTimeout(() => { $('#deliver-dialog').close(); refreshAll(); }, 900);
   } catch (err) { notice.className = 'notice error'; notice.textContent = err.message; }
@@ -307,21 +333,23 @@ $('#deliver-form').addEventListener('submit', async (e) => {
 /* 可靠分 */
 async function loadScore() {
   try {
-    const data = await api('/internal/executors');
-    const x = (data.executors || []).find((e) => e.id === me.id);
-    const score = x ? (x.reliabilityScore ?? 100) : 100;
+    const data = await api('/api/auth/me');
+    const x = data.user || {};
+    const score = x.reliabilityScore ?? 100;
     $('#score-num').textContent = score;
     $('#score-num').style.color = score >= 100 ? 'var(--ice)' : score >= 80 ? 'var(--gold)' : 'var(--err)';
-    $('#score-desc').textContent = x
-      ? `累计完成 ${x.completedTasks ?? 0} 单 · 打回 ${x.rejectedTasks ?? 0} 单`
-      : '暂无记录，认领第一单后开始计分（基准 100 分）';
+    $('#score-desc').textContent = `累计完成 ${x.completedTasks ?? 0} 单 · 打回 ${x.rejectedTasks ?? 0} 单`;
     $('#me-score').textContent = `可靠分 ${score}`;
   } catch (e) { $('#score-desc').textContent = `读取失败：${e.message}`; }
 }
 
 /* 加载 */
 async function loadTasks() {
-  try { const data = await api('/internal/human-capability-requests'); tasks = data.requests || []; }
+  try {
+    const [openData, mineData] = await Promise.all([api('/api/human-capability-requests/open'), api('/api/human-capability-requests/mine')]);
+    const seen = new Set();
+    tasks = [...(openData.requests || []), ...(mineData.requests || [])].filter((t) => !seen.has(t.id) && (seen.add(t.id), true));
+  }
   catch (e) { tasks = []; $('#open-list').innerHTML = `<div class="empty">读取失败：${esc(e.message)}</div>`; }
 }
 function renderAll() { renderOpen(); renderMine(); }

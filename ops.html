@@ -158,6 +158,7 @@ dialog::backdrop{background:rgba(43,10,78,.70)}
       <button class="tab" data-tab="policies">策略管理</button>
       <button class="tab" data-tab="ledger">积分账本</button>
       <button class="tab" data-tab="executors">执行者</button>
+      <button class="tab" data-tab="notify">通知设置</button>
     </div>
 
     <section id="tab-tasks">
@@ -214,6 +215,25 @@ dialog::backdrop{background:rgba(43,10,78,.70)}
         <div><label class="f" for="upsert-score">可靠分（0–120，留空不改）</label><input type="number" id="upsert-score" min="0" max="120" placeholder="100"></div>
         <div class="row-actions"><button class="btn btn-ghost btn-sm" id="upsert-btn">保存</button><span class="notice" id="upsert-notice"></span></div>
       </details>
+    </section>
+
+    <section id="tab-notify" hidden>
+      <div class="box">
+        <h3 class="sec-title" style="margin-top:0"><span class="kicker">NOTIFY</span>验证码邮件通道（QQ 邮箱 SMTP）</h3>
+        <p class="sub" style="margin-bottom:14px">执行者用 QQ 邮箱登录时，验证码从这里配置的邮箱发出。授权码在 QQ 邮箱「设置 → 账户 → SMTP」里获取，只保存在服务器本地，不会回传页面。</p>
+        <div class="grid2">
+          <div><label class="f" for="smtp-host">SMTP 服务器</label><input type="text" id="smtp-host" value="smtp.qq.com"></div>
+          <div><label class="f" for="smtp-port">端口</label><input type="number" id="smtp-port" value="465"></div>
+        </div>
+        <div><label class="f" for="smtp-user">发件邮箱（QQ 邮箱地址）</label><input type="text" id="smtp-user" placeholder="例如 1870852871@qq.com"></div>
+        <div><label class="f" for="smtp-pass">SMTP 授权码</label><input type="password" id="smtp-pass" autocomplete="off" placeholder="QQ 邮箱设置里生成的授权码，不是登录密码"></div>
+        <div class="row-actions">
+          <button class="btn btn-gold btn-sm" id="smtp-save">保存配置</button>
+          <button class="btn btn-ghost btn-sm" id="smtp-test">发送测试邮件</button>
+          <span class="notice" id="smtp-notice"></span>
+        </div>
+        <p class="sub" id="smtp-status" style="color:var(--faint);font-size:12.5px;margin-top:8px"></p>
+      </div>
     </section>
   </main>
 
@@ -307,7 +327,7 @@ $('#logout').addEventListener('click', () => location.reload());
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach((x) => x.classList.remove('active'));
   t.classList.add('active');
-  ['tasks', 'policies', 'ledger', 'executors'].forEach((k) => { $(`#tab-${k}`).hidden = t.dataset.tab !== k; });
+  ['tasks', 'policies', 'ledger', 'executors', 'notify'].forEach((k) => { $(`#tab-${k}`).hidden = t.dataset.tab !== k; });
 }));
 
 /* ---------- Tab 1: 任务流水线 ---------- */
@@ -537,6 +557,42 @@ async function loadExecutors() {
 }
 $('#refresh-executors').addEventListener('click', loadExecutors);
 $('#exec-search').addEventListener('input', renderExecutors);
+
+/* ---------- Tab 5: 通知设置(QQ 邮箱 SMTP) ---------- */
+async function loadSmtp() {
+  const status = $('#smtp-status'), notice = $('#smtp-notice');
+  try {
+    const data = await api('/internal/settings/smtp');
+    if (data.host) $('#smtp-host').value = data.host;
+    if (data.port) $('#smtp-port').value = data.port;
+    if (data.user) $('#smtp-user').value = data.user;
+    status.textContent = data.configured
+      ? `当前状态：已配置（${data.user} 经 ${data.host}:${data.port} 发送）`
+      : '当前状态：未配置。保存后执行者才能收到邮箱验证码。';
+  } catch (e) { status.textContent = `读取失败：${e.message}`; }
+}
+$('#smtp-save').addEventListener('click', async () => {
+  const notice = $('#smtp-notice'); notice.className = 'notice'; notice.textContent = '保存中…';
+  try {
+    await api('/internal/settings/smtp', { method: 'POST', body: JSON.stringify({
+      host: $('#smtp-host').value.trim(), port: Number($('#smtp-port').value) || 465,
+      user: $('#smtp-user').value.trim(), pass: $('#smtp-pass').value,
+    }) });
+    $('#smtp-pass').value = '';
+    notice.className = 'notice ok'; notice.textContent = '已保存';
+    loadSmtp();
+  } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
+});
+$('#smtp-test').addEventListener('click', async () => {
+  const notice = $('#smtp-notice'); notice.className = 'notice'; notice.textContent = '发送中…';
+  const to = $('#smtp-user').value.trim();
+  if (!to) { notice.className = 'notice error'; notice.textContent = '请先填写发件邮箱'; return; }
+  try {
+    const data = await api('/internal/settings/smtp/test', { method: 'POST', body: JSON.stringify({ to }) });
+    notice.className = 'notice ok'; notice.textContent = `测试邮件已发送至 ${data.sentTo}，请查收`;
+  } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
+});
+document.querySelector('.tab[data-tab="notify"]').addEventListener('click', loadSmtp);
 $('#import-btn').addEventListener('click', async () => {
   const notice = $('#import-notice'); notice.className = 'notice'; notice.textContent = '导入中…';
   try {
