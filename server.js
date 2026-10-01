@@ -551,9 +551,128 @@ function checkDisputeEscalation() {
   if (escalated > 0) persistDisputes();
   return escalated;
 }
+
+// ---- v1.1: AI 工头独立 API Key ----
+// 人类走 /api/auth 登录,AI 工头走 API Key:每个工头独立签发、可吊销、可限流、可审计。
+// 旧的 X-HHBA-Internal-Key 继续有效(标记为 legacy,向后兼容)。
+const API_KEY_SCOPES = ['draft', 'publish', 'claim', 'deliver', 'verify', 'feedback', 'dispute', 'admin'];
+const DEFAULT_API_KEY_SCOPES = ['draft', 'publish', 'claim', 'deliver'];
+const apiKeysFile = path.join(dataDirectory, 'api-keys.json');
+const apiKeys = new Map(); // id -> record
+function loadApiKeys() {
+  try {
+    const saved = JSON.parse(readFileSync(apiKeysFile, 'utf8'));
+    for (const item of saved.apiKeys || []) apiKeys.set(item.id, item);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+function persistApiKeys() {
+  mkdirSync(dataDirectory, { recursive: true });
+  const temporaryFile = `${apiKeysFile}.${process.pid}.tmp`;
+  writeFileSync(temporaryFile, JSON.stringify({ version: 1, apiKeys: [...apiKeys.values()] }, null, 2));
+  renameSync(temporaryFile, apiKeysFile);
+}
+function sha256Hex(s) {
+  return createHash('sha256').update(String(s)).digest('hex');
+}
+function findApiKeyByHash(keyHash) {
+  for (const rec of apiKeys.values()) {
+    if (!rec.deleted && rec.keyHash === keyHash) return rec;
+  }
+  return null;
+}
+// key 生命周期审计(签发/吊销/暂停/恢复/删除),记在 key 记录自身上
+function keyAudit(rec, event, details = {}) {
+  rec.keyAudit = [...(rec.keyAudit || []), { at: new Date().toISOString(), event, ...details }];
+}
+// 脱敏视图:永不返回 keyHash 与明文 key
+function publicKeyView(rec) {
+  const { keyHash, ...rest } = rec;
+  return rest;
+}
+// v1.1: 每个 API Key 独立限流(内存计数,服务重启清零可接受)
+const apiKeyUsage = new Map(); // keyId -> { minuteStart, minuteCount, dayStart, dayCount }
+function checkApiKeyRateLimit(rec) {
+  const now = Date.now();
+  const rl = rec.rateLimit || {};
+  const perMinute = Number(rl.perMinute) > 0 ? Math.floor(Number(rl.perMinute)) : 60;
+  const perDay = Number(rl.perDay) > 0 ? Math.floor(Number(rl.perDay)) : 1000;
+  let u = apiKeyUsage.get(rec.id);
+  if (!u) { u = { minuteStart: now, minuteCount: 0, dayStart: now, dayCount: 0 }; apiKeyUsage.set(rec.id, u); }
+  if (now - u.minuteStart >= 60000) { u.minuteStart = now; u.minuteCount = 0; }
+  if (now - u.dayStart >= 86400000) { u.dayStart = now; u.dayCount = 0; }
+  if (u.minuteCount >= perMinute || u.dayCount >= perDay) return false;
+  u.minuteCount += 1;
+  u.dayCount += 1;
+  return true;
+}
+// v1.1: API Key 调用记录(内存环形缓冲,最近 1000 条,供审计)
+const apiKeyCallLog = [];
+function logApiKeyCall(identity, request, status) {
+  if (!identity || identity.kind !== 'api-key') return;
+  apiKeyCallLog.push({
+    at: new Date().toISOString(),
+    keyId: identity.keyId, keyName: identity.keyName, tool: identity.tool,
+    method: request.method, endpoint: String(request.url).split('?')[0], status,
+  });
+  if (apiKeyCallLog.length > 1000) apiKeyCallLog.splice(0, apiKeyCallLog.length - 1000);
+}
+// v1.1: 解析调用方身份:新 API Key / 旧 internal key(legacy) / ops session / 未认证
+function getApiKeyIdentity(request) {
+  const presented = request.headers['x-hhba-api-key'];
+  if (presented) {
+    const rec = findApiKeyByHash(sha256Hex(presented));
+    if (!rec) return { kind: 'api-key', invalid: true };
+    if (rec.status !== 'active') {
+      return { kind: 'api-key', keyId: rec.id, keyName: rec.name, tool: rec.tool, status: rec.status, inactive: true };
+    }
+    if (!checkApiKeyRateLimit(rec)) {
+      return { kind: 'api-key', keyId: rec.id, keyName: rec.name, tool: rec.tool, status: rec.status, rateLimited: true };
+    }
+    rec.lastUsedAt = new Date().toISOString();
+    persistApiKeys();
+    return { kind: 'api-key', keyId: rec.id, keyName: rec.name, tool: rec.tool, scopes: rec.scopes || [], rateLimit: rec.rateLimit };
+  }
+  if (request.headers['x-hhba-internal-key'] === internalApiKey) {
+    return { kind: 'legacy-key', legacy: true, keyName: 'legacy-internal-key' };
+  }
+  const sessionId = cookies(request).hhba_internal_session;
+  const session = sessionId && internalSessions.get(sessionId);
+  if (session && new Date(session.expiresAt) > new Date()) {
+    return { kind: 'ops-session', keyName: 'ops-session' };
+  }
+  return null;
+}
+// v1.1: internal 接口统一鉴权入口。
+// 返回 identity;鉴权失败时已写响应并返回 null。
+// scope 为空表示不做 scope 检查;legacy key 与 ops session 拥有全部权限(向后兼容),
+// 只有新签发的 API Key 受 scopes 约束。
+function requireInternal(request, response, scope) {
+  const identity = getApiKeyIdentity(request);
+  // 无身份:保持与旧 hasInternalAccess 一致的 403(向后兼容)
+  if (!identity) { json(response, 403, { error: 'HHBA internal access is required' }); return null; }
+  if (identity.invalid) { json(response, 401, { error: 'invalid API key' }); return null; }
+  if (identity.inactive) { logApiKeyCall(identity, request, 403); json(response, 403, { error: `API key is ${identity.status}` }); return null; }
+  if (identity.rateLimited) { logApiKeyCall(identity, request, 429); json(response, 429, { error: 'API key rate limit exceeded' }); return null; }
+  if (scope && identity.kind === 'api-key' && !(identity.scopes || []).includes(scope)) {
+    logApiKeyCall(identity, request, 403);
+    json(response, 403, { error: `missing required scope: ${scope}` });
+    return null;
+  }
+  logApiKeyCall(identity, request, 200);
+  return identity;
+}
+// v1.1: 把调用方身份塞进任务 audit,知道是哪台 AI 干的
+function auditActor(identity) {
+  if (!identity) return {};
+  if (identity.kind === 'api-key') return { keyId: identity.keyId, keyName: identity.keyName, tool: identity.tool };
+  if (identity.kind === 'legacy-key') return { keyName: 'legacy-internal-key', legacy: true };
+  return { keyName: 'ops-session' };
+}
 // 仲裁支持执行者:任务 REWORK -> VERIFIED,从老板处重新冻结预算并结算给执行者
 // 抛错时调用方负责转成 409(老板积分不足等)
-function applyArbitrationExecutorWin(item, dispute) {
+function applyArbitrationExecutorWin(item, dispute, actorExtra = {}) {
   const handlerId = item.assignment?.handlerId || null;
   const amount = budgetAmountOf(item) || 0;
   const now = new Date().toISOString();
@@ -565,7 +684,7 @@ function applyArbitrationExecutorWin(item, dispute) {
   }
   item.status = 'VERIFIED';
   item.verification = { passed: true, reasons: [], verifiedAt: now, verifiedBy: 'dispute-arbitration', disputeId: dispute.id };
-  audit(item, 'DISPUTE_ARBITRATED', { actor: 'platform', disputeId: dispute.id, decision: 'EXECUTOR' });
+  audit(item, 'DISPUTE_ARBITRATED', { actor: 'platform', disputeId: dispute.id, decision: 'EXECUTOR', ...actorExtra });
   if (handlerId) {
     const executor = getExecutor(handlerId);
     executor.rejectedTasks = Math.max(0, (executor.rejectedTasks || 0) - 1); // 打回被推翻,撤销一次拒收计数
@@ -577,7 +696,7 @@ function applyArbitrationExecutorWin(item, dispute) {
   return amount;
 }
 // 终审改判(EXECUTOR -> BOSS):追回仲裁结算,任务 VERIFIED -> REWORK
-function reverseArbitrationExecutorWin(item, dispute) {
+function reverseArbitrationExecutorWin(item, dispute, actorExtra = {}) {
   const handlerId = item.assignment?.handlerId || null;
   const amount = item.arbitrationSettled || 0;
   const now = new Date().toISOString();
@@ -592,7 +711,7 @@ function reverseArbitrationExecutorWin(item, dispute) {
   }
   item.status = 'REWORK';
   item.verification = { passed: false, reasons: [], verifiedAt: now, verifiedBy: 'dispute-final', disputeId: dispute.id, note: '终审改判,退回返工' };
-  audit(item, 'DISPUTE_FINAL_REVERSED', { actor: 'platform', disputeId: dispute.id, decision: 'BOSS' });
+  audit(item, 'DISPUTE_FINAL_REVERSED', { actor: 'platform', disputeId: dispute.id, decision: 'BOSS', ...actorExtra });
   if (handlerId) {
     const executor = getExecutor(handlerId);
     executor.completedTasks = Math.max(0, (executor.completedTasks || 0) - 1);
@@ -910,6 +1029,12 @@ function checkAutoApprove() {
 }
 function hasInternalAccess(request) {
   if (request.headers['x-hhba-internal-key'] === internalApiKey) return true;
+  // v1.1: 有效的(未删除、active 的)API Key 同样拥有 internal 访问权;scope 约束由 requireInternal 做
+  const presented = request.headers['x-hhba-api-key'];
+  if (presented) {
+    const rec = findApiKeyByHash(sha256Hex(presented));
+    return Boolean(rec && rec.status === 'active');
+  }
   const sessionId = cookies(request).hhba_internal_session;
   const session = sessionId && internalSessions.get(sessionId);
   return Boolean(session && new Date(session.expiresAt) > new Date());
@@ -923,6 +1048,7 @@ loadLedger();
 loadExecutors();
 loadFeedbacks();
 loadDisputes();
+loadApiKeys(); // v1.1
 loadUsers();
 loadSmtp();
 loadSms();
@@ -935,6 +1061,13 @@ http.createServer(async (request, response) => {
     try {
       const item = normalize(await readBody(request));
       requests.set(item.id, item);
+      // v1.1: 用 API Key 发起的草案,在 audit 里记下是哪台 AI 干的(匿名调用保持原样)
+      const draftIdentity = getApiKeyIdentity(request);
+      if (draftIdentity && draftIdentity.kind === 'api-key' && !draftIdentity.invalid) {
+        const created = (item.audit || []).find((e) => e.event === 'DRAFT_CREATED');
+        if (created) Object.assign(created, auditActor(draftIdentity));
+        else audit(item, 'DRAFT_CREATED', { ...auditActor(draftIdentity) });
+      }
       persist();
       const policyCheck = evaluatePolicy(item);
       return json(response, 201, { id: item.id, status: item.status, proposal: { foreman: item.foreman, humanGap: item.humanGap, acceptanceCriteria: item.acceptanceCriteria, preferredExecutor: item.preferredExecutor, deliverables: item.deliverables, evidenceRequirements: item.evidenceRequirements, budget: item.budget, deadline: item.deadline }, approvalRequired: true,
@@ -958,9 +1091,10 @@ http.createServer(async (request, response) => {
     return json(response, 200, { template: tpl });
   }
 
-  // v0.9:创建/更新任务模板(需 internal key)
+  // v0.9:创建/更新任务模板(需 internal key;v1.1: API Key 需 admin scope)
   if (request.method === 'POST' && request.url === '/api/task-templates') {
-    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    const tplIdentity = requireInternal(request, response, 'admin');
+    if (!tplIdentity) return;
     try {
       const body = await readBody(request);
       const existing = body.id ? taskTemplates.get(String(body.id).trim()) : null;
@@ -972,10 +1106,11 @@ http.createServer(async (request, response) => {
     } catch (error) { return json(response, 400, { error: error.message }); }
   }
 
-  // v0.9:禁用任务模板(需 internal key,软删除:保留数据,列表不再展示)
+  // v0.9:禁用任务模板(需 internal key,软删除:保留数据,列表不再展示;v1.1: API Key 需 admin scope)
   const templateDisableMatch = request.url.match(/^\/api\/task-templates\/([^/]+)$/);
   if (templateDisableMatch && request.method === 'DELETE') {
-    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    const tplDelIdentity = requireInternal(request, response, 'admin');
+    if (!tplDelIdentity) return;
     const tpl = taskTemplates.get(decodeURIComponent(templateDisableMatch[1]).trim());
     if (!tpl) return json(response, 404, { error: 'task template not found' });
     tpl.enabled = false;
@@ -1020,7 +1155,7 @@ http.createServer(async (request, response) => {
       if (amount != null && min != null && max != null && (amount < min || amount > max)) {
         budgetWarning = `预算 ${amount} 超出模板建议范围 ${min}-${max}`;
       }
-      audit(item, 'CREATED_FROM_TEMPLATE', { actor: session ? session.userId : 'internal', templateId: tpl.id, templateName: tpl.name });
+      audit(item, 'CREATED_FROM_TEMPLATE', { actor: session ? session.userId : 'internal', templateId: tpl.id, templateName: tpl.name, ...auditActor(getApiKeyIdentity(request)) });
       requests.set(item.id, item);
       persist();
       const policyCheck = evaluatePolicy(item);
@@ -1391,9 +1526,11 @@ http.createServer(async (request, response) => {
 
   // 验收环节(需 internal key,即工头调用):DELIVERED -> VERIFIED / REWORK -> DELIVERED
   // v0.7: 拒收理由必须从枚举中选择；每次验收前先跑一遍超时自动批准
+  // v1.1: API Key 需 verify scope
   const verifyMatch = request.url.match(/^\/internal\/tasks\/([^/]+)\/verify$/);
   if (verifyMatch) {
-    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    const verifyIdentity = requireInternal(request, response, 'verify');
+    if (!verifyIdentity) return;
     if (request.method !== 'POST') return json(response, 405, { error: 'method not allowed' });
     checkAutoApprove(); // 顺手处理超时的任务
     const [, verifyId] = verifyMatch;
@@ -1416,7 +1553,7 @@ http.createServer(async (request, response) => {
       if (body.passed) {
         item.status = 'VERIFIED';
         item.verification = { passed: true, reasons, verifiedAt: now, verifiedBy: 'foreman' };
-        audit(item, 'VERIFY_PASSED', { actor: 'foreman', reasons });
+        audit(item, 'VERIFY_PASSED', { actor: 'foreman', reasons, ...auditActor(verifyIdentity) });
         let settled = 0;
         if (handlerId && amount > 0) {
           settled = settleCredits(item.id, amount, handlerId);
@@ -1435,7 +1572,7 @@ http.createServer(async (request, response) => {
       }
       item.status = 'REWORK';
       item.verification = { passed: false, reasons, verifiedAt: now, verifiedBy: 'foreman' };
-      audit(item, 'VERIFY_REJECTED', { actor: 'foreman', reasons });
+      audit(item, 'VERIFY_REJECTED', { actor: 'foreman', reasons, ...auditActor(verifyIdentity) });
       let refunded = 0;
       if (amount > 0) {
         refunded = unfreezeCredits(item.id, amount);
@@ -1456,9 +1593,11 @@ http.createServer(async (request, response) => {
 
   // v0.8:任务反馈(需 internal key,即工头/老板调用):公开评价 + 私有反馈一次提交
   // 私有反馈不对执行者公开,仅用于复合信誉分计算
+  // v1.1: API Key 需 feedback scope
   const feedbackMatch = request.url.match(/^\/api\/tasks\/([^/]+)\/feedback$/);
   if (feedbackMatch && request.method === 'POST') {
-    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    const feedbackIdentity = requireInternal(request, response, 'feedback');
+    if (!feedbackIdentity) return;
     const item = find(feedbackMatch[1], response);
     if (!item) return;
     try {
@@ -1496,7 +1635,7 @@ http.createServer(async (request, response) => {
       };
       feedbacks.push(feedback);
       persistFeedbacks();
-      audit(item, 'FEEDBACK_SUBMITTED', { actor: bossId, hasPublic: publicScore != null, hasPrivate: privateScore != null });
+      audit(item, 'FEEDBACK_SUBMITTED', { actor: bossId, hasPublic: publicScore != null, hasPrivate: privateScore != null, ...auditActor(feedbackIdentity) });
       persist();
       const reputation = syncCompositeScore(handlerId);
       return json(response, 201, {
@@ -1550,10 +1689,11 @@ http.createServer(async (request, response) => {
     });
   }
 
-  // 包工头模式:策略管理(需 internal key 或 ops session)
+  // 包工头模式:策略管理(需 internal key 或 ops session;v1.1: API Key 需 admin scope)
   const policyMatch = request.url.match(/^\/internal\/policies(?:\/([^/]+))?$/);
   if (policyMatch) {
-    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    const policyIdentity = requireInternal(request, response, 'admin');
+    if (!policyIdentity) return;
     const [, policyId] = policyMatch;
     if (request.method === 'GET' && !policyId) return json(response, 200, { policies: [...policies.values()] });
     if (request.method === 'POST' && !policyId) {
@@ -1582,9 +1722,14 @@ http.createServer(async (request, response) => {
 
   const internalMatch = request.url.match(/^\/internal\/human-capability-requests(?:\/([^/]+)(?:\/(claim|deliver))?)?$/);
   if (internalMatch) {
-    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
     const [, id, action] = internalMatch;
-    if (request.method === 'GET' && !id) return json(response, 200, { requests: [...requests.values()].filter((item) => ['MATCHING_CAPABILITY', 'IN_PROGRESS', 'DELIVERED', 'REWORK', 'VERIFIED'].includes(item.status)).map(internalRequestView) });
+    if (request.method === 'GET' && !id) {
+      if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+      return json(response, 200, { requests: [...requests.values()].filter((item) => ['MATCHING_CAPABILITY', 'IN_PROGRESS', 'DELIVERED', 'REWORK', 'VERIFIED'].includes(item.status)).map(internalRequestView) });
+    }
+    // v1.1: claim / deliver 按 scope 鉴权(action 名即 scope 名);无 action 时只做基础鉴权
+    const opIdentity = requireInternal(request, response, action || undefined);
+    if (!opIdentity) return;
     const item = find(id, response);
     if (!item) return;
     if (request.method !== 'POST') return json(response, 405, { error: 'method not allowed' });
@@ -1599,7 +1744,7 @@ http.createServer(async (request, response) => {
         const executor = getExecutor(handlerId);
         if (item.assignment.handlerDisplayName) executor.displayName = item.assignment.handlerDisplayName;
         persistExecutors();
-        audit(item, 'CAPABILITY_CLAIMED', { actor: handlerId }); persist();
+        audit(item, 'CAPABILITY_CLAIMED', { actor: handlerId, ...auditActor(opIdentity) }); persist();
         return json(response, 201, { requestId: id, status: item.status, assignment: item.assignment });
       }
       if (action === 'deliver') {
@@ -1616,16 +1761,133 @@ http.createServer(async (request, response) => {
               item.frozenAmount = amount;
             } catch (error) { return json(response, 409, { error: `重新交付需要重新冻结积分:${error.message}` }); }
           }
-          audit(item, 'REDELIVERED_AFTER_REWORK', { actor: item.assignment?.handlerId || 'hhba-internal' });
+          audit(item, 'REDELIVERED_AFTER_REWORK', { actor: item.assignment?.handlerId || 'hhba-internal', ...auditActor(opIdentity) });
         }
         item.status = 'DELIVERED';
         item.deliveredAt = new Date().toISOString();
         item.deliverableBundle = { submittedAt: new Date().toISOString(), summary: String(body.summary || '').trim(), artifacts, evidence, structuredAnswers: body.structured_answers || {}, acceptanceNotes: String(body.acceptance_notes || '').trim() };
-        audit(item, 'DELIVERABLE_SUBMITTED', { actor: item.assignment?.handlerId || 'hhba-internal' }); persist();
+        audit(item, 'DELIVERABLE_SUBMITTED', { actor: item.assignment?.handlerId || 'hhba-internal', ...auditActor(opIdentity) }); persist();
         return json(response, 201, { requestId: id, status: item.status });
       }
       return json(response, 404, { error: 'internal operation not found' });
     } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  // ---- v1.1: AI 工头 API Key 管理(需 admin scope;legacy key / ops session 向后兼容) ----
+  // 签发新 key:明文 key 只在本次响应返回,服务端只存 SHA256 哈希
+  if (request.method === 'POST' && request.url === '/internal/api-keys') {
+    const identity = requireInternal(request, response, 'admin');
+    if (!identity) return;
+    try {
+      const body = await readBody(request);
+      const name = String(body.name || '').trim();
+      if (!name) return json(response, 400, { error: 'name is required' });
+      if ([...apiKeys.values()].some((k) => !k.deleted && k.name === name)) {
+        return json(response, 409, { error: '同名 key 已存在' });
+      }
+      const tool = String(body.tool || 'other').trim();
+      if (!['codex-cloud', 'cursor', 'openclaw', 'other'].includes(tool)) {
+        return json(response, 400, { error: 'tool 必须是 codex-cloud / cursor / openclaw / other 之一' });
+      }
+      const scopes = Array.isArray(body.scopes)
+        ? [...new Set(body.scopes.map((s) => String(s).trim()).filter((s) => API_KEY_SCOPES.includes(s)))]
+        : [...DEFAULT_API_KEY_SCOPES];
+      if (!scopes.length) return json(response, 400, { error: 'scopes 不能为空' });
+      const rlBody = body.rateLimit || {};
+      const rateLimit = {
+        perMinute: Number(rlBody.perMinute) > 0 ? Math.floor(Number(rlBody.perMinute)) : 60,
+        perDay: Number(rlBody.perDay) > 0 ? Math.floor(Number(rlBody.perDay)) : 1000,
+      };
+      const plaintext = 'hhba_sk_' + randomBytes(16).toString('hex');
+      const now = new Date().toISOString();
+      const rec = {
+        id: 'hk_' + randomBytes(6).toString('hex'),
+        name, tool, scopes, rateLimit,
+        keyHash: sha256Hex(plaintext),
+        keyPrefix: plaintext.slice(0, 16), // 识别用前缀,不含完整密钥,不可反推明文
+        status: 'active',
+        note: String(body.note || '').trim() || null,
+        createdAt: now, updatedAt: now, lastUsedAt: null, revokedAt: null,
+        createdBy: identity.keyName || identity.kind,
+        keyAudit: [],
+      };
+      keyAudit(rec, 'ISSUED', { actor: identity.keyName || identity.kind, scopes, tool, rateLimit });
+      apiKeys.set(rec.id, rec);
+      persistApiKeys();
+      return json(response, 201, {
+        id: rec.id, name, key: plaintext, keyPrefix: rec.keyPrefix,
+        tool, scopes, rateLimit, status: 'active', createdAt: now, note: rec.note,
+        warning: 'key 明文仅返回一次,请妥善保存,服务端不存储明文',
+      });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  // 列出所有 key(脱敏:无明文、无哈希,只有识别前缀)
+  if (request.method === 'GET' && request.url === '/internal/api-keys') {
+    const identity = requireInternal(request, response, 'admin');
+    if (!identity) return;
+    const list = [...apiKeys.values()].filter((k) => !k.deleted).map(publicKeyView);
+    return json(response, 200, { keys: list, total: list.length });
+  }
+
+  // key 详情:含用量统计与最近调用记录(审计)
+  const apiKeyDetailMatch = request.url.match(/^\/internal\/api-keys\/([^/]+)$/);
+  if (apiKeyDetailMatch && request.method === 'GET') {
+    const identity = requireInternal(request, response, 'admin');
+    if (!identity) return;
+    const rec = apiKeys.get(decodeURIComponent(apiKeyDetailMatch[1]).trim());
+    if (!rec || rec.deleted) return json(response, 404, { error: 'api key not found' });
+    const u = apiKeyUsage.get(rec.id);
+    const recentCalls = apiKeyCallLog.filter((c) => c.keyId === rec.id).slice(-50);
+    return json(response, 200, {
+      key: publicKeyView(rec),
+      usage: u ? { minuteCount: u.minuteCount, dayCount: u.dayCount } : { minuteCount: 0, dayCount: 0 },
+      recentCalls,
+    });
+  }
+
+  // 吊销 / 暂停 / 恢复
+  const apiKeyActionMatch = request.url.match(/^\/internal\/api-keys\/([^/]+)\/(revoke|suspend|activate)$/);
+  if (apiKeyActionMatch && request.method === 'POST') {
+    const identity = requireInternal(request, response, 'admin');
+    if (!identity) return;
+    const rec = apiKeys.get(decodeURIComponent(apiKeyActionMatch[1]).trim());
+    if (!rec || rec.deleted) return json(response, 404, { error: 'api key not found' });
+    const action = apiKeyActionMatch[2];
+    const now = new Date().toISOString();
+    const actor = identity.keyName || identity.kind;
+    if (action === 'revoke') {
+      if (rec.status === 'revoked') return json(response, 409, { error: 'key already revoked' });
+      rec.status = 'revoked';
+      rec.revokedAt = now;
+      keyAudit(rec, 'REVOKED', { actor });
+    } else if (action === 'suspend') {
+      if (rec.status !== 'active') return json(response, 409, { error: `cannot suspend from ${rec.status}` });
+      rec.status = 'suspended';
+      keyAudit(rec, 'SUSPENDED', { actor });
+    } else {
+      if (rec.status !== 'suspended') return json(response, 409, { error: `cannot activate from ${rec.status}` });
+      rec.status = 'active';
+      keyAudit(rec, 'ACTIVATED', { actor });
+    }
+    rec.updatedAt = now;
+    persistApiKeys();
+    return json(response, 200, { key: publicKeyView(rec) });
+  }
+
+  // 删除 key(软删除:保留记录供审计,密钥立即失效)
+  if (apiKeyDetailMatch && request.method === 'DELETE') {
+    const identity = requireInternal(request, response, 'admin');
+    if (!identity) return;
+    const rec = apiKeys.get(decodeURIComponent(apiKeyDetailMatch[1]).trim());
+    if (!rec || rec.deleted) return json(response, 404, { error: 'api key not found' });
+    rec.deleted = true;
+    rec.status = 'revoked';
+    rec.revokedAt = new Date().toISOString();
+    rec.updatedAt = rec.revokedAt;
+    keyAudit(rec, 'DELETED', { actor: identity.keyName || identity.kind });
+    persistApiKeys();
+    return json(response, 200, { deleted: rec.id });
   }
 
   // ---- v1.0 纠纷模块:三级纠纷处理(双方协商 -> 平台仲裁 -> 终审) ----
@@ -1788,15 +2050,18 @@ http.createServer(async (request, response) => {
 
   // 所有纠纷列表(需 internal key)
   if (request.method === 'GET' && request.url === '/internal/disputes') {
-    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    const dspListIdentity = requireInternal(request, response, 'dispute');
+    if (!dspListIdentity) return;
     checkDisputeEscalation();
     return json(response, 200, { disputes: [...disputes.values()], total: disputes.size });
   }
 
   // 平台仲裁(需 internal key):Level 2 仲裁 / Level 3 终审(可改判)
+  // v1.1: API Key 需 dispute scope
   const disputeArbitrateMatch = request.url.match(/^\/internal\/disputes\/([^/]+)\/arbitrate$/);
   if (disputeArbitrateMatch && request.method === 'POST') {
-    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    const arbIdentity = requireInternal(request, response, 'dispute');
+    if (!arbIdentity) return;
     checkDisputeEscalation();
     const d = disputes.get(decodeURIComponent(disputeArbitrateMatch[1]).trim());
     if (!d) return json(response, 404, { error: 'dispute not found' });
@@ -1813,7 +2078,7 @@ http.createServer(async (request, response) => {
           if (!item) return json(response, 409, { error: '关联任务不存在,无法仲裁' });
           if (item.status !== 'REWORK') return json(response, 409, { error: `任务状态已变化,无法仲裁:${item.status}` });
           try {
-            applyArbitrationExecutorWin(item, d);
+            applyArbitrationExecutorWin(item, d, auditActor(arbIdentity));
           } catch (error) {
             return json(response, 409, { error: `仲裁结算失败:${error.message}` });
           }
@@ -1821,7 +2086,7 @@ http.createServer(async (request, response) => {
         } else {
           // 维持打回:执行者可重新交付;无理纠纷扣执行者 5 分
           adjustReliability(d.executorId, -5);
-          if (item) { audit(item, 'DISPUTE_ARBITRATED', { actor: 'platform', disputeId: d.id, decision: 'BOSS' }); persist(); }
+          if (item) { audit(item, 'DISPUTE_ARBITRATED', { actor: 'platform', disputeId: d.id, decision: 'BOSS', ...auditActor(arbIdentity) }); persist(); }
           d.resolution = { outcome: 'BOSS', note: note || '仲裁支持老板,维持打回', decidedBy: 'platform', decidedAt: now };
         }
         d.status = 'RESOLVED';
@@ -1836,14 +2101,14 @@ http.createServer(async (request, response) => {
           if (!item) return json(response, 409, { error: '关联任务不存在,无法终审' });
           if (item.status !== 'REWORK') return json(response, 409, { error: `任务状态已变化,无法终审:${item.status}` });
           try {
-            applyArbitrationExecutorWin(item, d);
+            applyArbitrationExecutorWin(item, d, auditActor(arbIdentity));
           } catch (error) {
             return json(response, 409, { error: `终审结算失败:${error.message}` });
           }
         } else if (decision === 'BOSS' && prev === 'EXECUTOR') {
           if (!item) return json(response, 409, { error: '关联任务不存在,无法终审' });
           if (item.status !== 'VERIFIED') return json(response, 409, { error: `任务状态已变化,无法终审改判:${item.status}` });
-          reverseArbitrationExecutorWin(item, d);
+          reverseArbitrationExecutorWin(item, d, auditActor(arbIdentity));
         }
         // 终审败诉的升级方:执行者升级又败诉则再扣 5 分(老板方无信誉分可扣)
         const loser = decision === 'EXECUTOR' ? 'boss' : 'executor';
