@@ -8,7 +8,16 @@ const capabilityTypes = new Set(['DIGITAL_EXECUTION', 'EXPERT_JUDGMENT', 'REALIT
 const approvalLifetimeMs = 15 * 60 * 1000;
 const dataDirectory = path.join(process.cwd(), 'data');
 const dataFile = path.join(dataDirectory, 'human-capability-requests.json');
+const policiesFile = path.join(dataDirectory, 'policies.json');
+// 前端页面地址可配置(默认本地 UI);生产部署时设为公网域名
+const uiOrigin = process.env.HHBA_UI_ORIGIN || 'http://127.0.0.1:4173';
+
+// 包工头模式:内部 key 缺失时拒绝启动(除非显式允许开发模式),避免生产环境落到公开默认值
 const internalApiKey = process.env.HHBA_INTERNAL_API_KEY || 'hhba-local-internal-dev-key';
+if (!process.env.HHBA_INTERNAL_API_KEY && process.env.HHBA_ALLOW_INSECURE_DEV_KEY !== '1') {
+  console.error('[HHBA] HHBA_INTERNAL_API_KEY is not set. Set it, or explicitly opt into the insecure dev key with HHBA_ALLOW_INSECURE_DEV_KEY=1.');
+  process.exit(1);
+}
 const internalSessions = new Map();
 const internalSessionLifetimeMs = 8 * 60 * 60 * 1000;
 
@@ -31,23 +40,98 @@ function audit(item, event, details = {}) {
   item.audit = [...(item.audit || []), { at: item.updatedAt, event, ...details }];
 }
 
+// ---- 包工头模式:老板(人)定预算与规则,AI 在规则内自动发单 ----
+const policies = new Map();
+function loadPolicies() {
+  try {
+    const saved = JSON.parse(readFileSync(policiesFile, 'utf8'));
+    for (const item of saved.policies || []) policies.set(item.id, item);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+function persistPolicies() {
+  mkdirSync(dataDirectory, { recursive: true });
+  const temporaryFile = `${policiesFile}.${process.pid}.tmp`;
+  writeFileSync(temporaryFile, JSON.stringify({ version: 1, policies: [...policies.values()] }, null, 2));
+  renameSync(temporaryFile, policiesFile);
+}
+function normalizePolicy(input, existing) {
+  const now = new Date().toISOString();
+  const name = String(input.name ?? existing?.name ?? '默认策略').trim() || '默认策略';
+  const enabled = input.enabled !== undefined ? Boolean(input.enabled) : (existing?.enabled ?? true);
+  const toAmount = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) throw new Error('policy budget fields must be non-negative numbers');
+    return parsed;
+  };
+  const maxAmountPerTask = toAmount(input.maxAmountPerTask ?? existing?.maxAmountPerTask ?? null);
+  const dailyBudgetCap = toAmount(input.dailyBudgetCap ?? existing?.dailyBudgetCap ?? null);
+  const monthlyBudgetCap = toAmount(input.monthlyBudgetCap ?? existing?.monthlyBudgetCap ?? null);
+  const allowedTypes = input.allowedTypes !== undefined ? list(input.allowedTypes) : (existing?.allowedTypes || []);
+  for (const type of allowedTypes) {
+    if (!capabilityTypes.has(type)) throw new Error(`allowedTypes must be one of: ${[...capabilityTypes].join(', ')}`);
+  }
+  return {
+    id: existing?.id || `pol_${randomUUID().slice(0, 8)}`,
+    name, enabled, maxAmountPerTask, dailyBudgetCap, monthlyBudgetCap, allowedTypes,
+    createdAt: existing?.createdAt || now, updatedAt: now
+  };
+}
+function budgetAmountOf(item) {
+  const budget = item.budget;
+  if (typeof budget === 'number' && Number.isFinite(budget)) return budget;
+  if (typeof budget === 'string') {
+    const match = budget.replace(/,/g, '').match(/-?\d+(\.\d+)?/);
+    if (match) return parseFloat(match[0]);
+  }
+  return null;
+}
+function dayStartIso() { const date = new Date(); date.setHours(0, 0, 0, 0); return date.toISOString(); }
+function monthStartIso() { const date = new Date(); date.setDate(1); date.setHours(0, 0, 0, 0); return date.toISOString(); }
+function spendSince(startIso) {
+  let total = 0;
+  for (const item of requests.values()) {
+    if (!['MATCHING_CAPABILITY', 'IN_PROGRESS', 'DELIVERED'].includes(item.status)) continue;
+    if ((item.publishedAt || item.createdAt) < startIso) continue;
+    const amount = budgetAmountOf(item);
+    if (amount !== null) total += amount;
+  }
+  return total;
+}
+// 按老板定的预算/规则评估任务:命中任一启用策略即自动放行
+function evaluatePolicy(item) {
+  const amount = budgetAmountOf(item);
+  if (amount === null) return { eligible: false, reason: '任务未填写可识别的预算金额,需要人工确认' };
+  for (const policy of policies.values()) {
+    if (!policy.enabled) continue;
+    if (policy.allowedTypes?.length && !policy.allowedTypes.includes(item.humanGap.type)) continue;
+    if (policy.maxAmountPerTask != null && amount > policy.maxAmountPerTask) continue;
+    if (policy.dailyBudgetCap != null && spendSince(dayStartIso()) + amount > policy.dailyBudgetCap) continue;
+    if (policy.monthlyBudgetCap != null && spendSince(monthStartIso()) + amount > policy.monthlyBudgetCap) continue;
+    return { eligible: true, policy };
+  }
+  return { eligible: false, reason: '没有匹配的自动审批策略,需要人工确认' };
+}
+
 function json(response, status, body) {
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': 'http://127.0.0.1:4173',
+    'Access-Control-Allow-Origin': uiOrigin,
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Headers': 'Content-Type, X-HHBA-Approval-Token, X-HHBA-Internal-Key',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE'
   });
   response.end(JSON.stringify(body));
 }
 function jsonWithHeaders(response, status, body, headers = {}) {
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': 'http://127.0.0.1:4173',
+    'Access-Control-Allow-Origin': uiOrigin,
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Headers': 'Content-Type, X-HHBA-Approval-Token, X-HHBA-Internal-Key',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
     ...headers
   });
   response.end(JSON.stringify(body));
@@ -64,6 +148,9 @@ function serialize(item) {
   const { approval, assignment, audit, ...safe } = item;
   return { ...safe, approval: approval ? {
     status: approval.consumedAt ? 'CONSUMED' : approval.token ? 'ISSUED' : 'AWAITING_BROWSER_CONFIRMATION',
+    autoApproved: Boolean(approval.autoApproved),
+    policyId: approval.policyId || null,
+    policyName: approval.policyName || null,
     expiresAt: approval.expiresAt,
     browserConfirmedAt: approval.browserConfirmedAt || null
   } : null };
@@ -108,6 +195,7 @@ function hasInternalAccess(request) {
 function internalRequestView(item) { return { ...serialize(item), assignment: item.assignment, audit: item.audit || [] }; }
 
 loadRequests();
+loadPolicies();
 
 http.createServer(async (request, response) => {
   if (request.method === 'OPTIONS') return json(response, 204, {});
@@ -118,7 +206,11 @@ http.createServer(async (request, response) => {
       const item = normalize(await readBody(request));
       requests.set(item.id, item);
       persist();
-      return json(response, 201, { id: item.id, status: item.status, proposal: { humanGap: item.humanGap, deliverables: item.deliverables, evidenceRequirements: item.evidenceRequirements, budget: item.budget, deadline: item.deadline }, approvalRequired: true });
+      const policyCheck = evaluatePolicy(item);
+      return json(response, 201, { id: item.id, status: item.status, proposal: { humanGap: item.humanGap, deliverables: item.deliverables, evidenceRequirements: item.evidenceRequirements, budget: item.budget, deadline: item.deadline }, approvalRequired: true,
+        autoApproval: policyCheck.eligible
+          ? { eligible: true, policyId: policyCheck.policy.id, policyName: policyCheck.policy.name }
+          : { eligible: false, reason: policyCheck.reason } });
     } catch (error) { return json(response, 400, { error: error.message }); }
   }
 
@@ -130,6 +222,36 @@ http.createServer(async (request, response) => {
     return jsonWithHeaders(response, 201, { status: 'authenticated', expiresAt }, {
       'Set-Cookie': `hhba_internal_session=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Lax; Path=/internal; Max-Age=${Math.floor(internalSessionLifetimeMs / 1000)}`
     });
+  }
+
+  // 包工头模式:策略管理(需 internal key 或 ops session)
+  const policyMatch = request.url.match(/^\/internal\/policies(?:\/([^/]+))?$/);
+  if (policyMatch) {
+    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    const [, policyId] = policyMatch;
+    if (request.method === 'GET' && !policyId) return json(response, 200, { policies: [...policies.values()] });
+    if (request.method === 'POST' && !policyId) {
+      try {
+        const policy = normalizePolicy(await readBody(request));
+        policies.set(policy.id, policy); persistPolicies();
+        return json(response, 201, { policy });
+      } catch (error) { return json(response, 400, { error: error.message }); }
+    }
+    if (request.method === 'POST' && policyId) {
+      const existing = policies.get(policyId);
+      if (!existing) return json(response, 404, { error: 'policy not found' });
+      try {
+        const policy = normalizePolicy(await readBody(request), existing);
+        policies.set(policy.id, policy); persistPolicies();
+        return json(response, 200, { policy });
+      } catch (error) { return json(response, 400, { error: error.message }); }
+    }
+    if (request.method === 'DELETE' && policyId) {
+      if (!policies.delete(policyId)) return json(response, 404, { error: 'policy not found' });
+      persistPolicies();
+      return json(response, 200, { deleted: policyId });
+    }
+    return json(response, 405, { error: 'method not allowed' });
   }
 
   const internalMatch = request.url.match(/^\/internal\/human-capability-requests(?:\/([^/]+)(?:\/(claim|deliver))?)?$/);
@@ -209,11 +331,21 @@ http.createServer(async (request, response) => {
     }
     if (action === 'publish') {
       const approval = item.approval;
-      const valid = approval && !approval.consumedAt && new Date(approval.expiresAt) > new Date() && request.headers['x-hhba-approval-token'] === approval.token;
-      if (!valid) return json(response, 403, { error: 'a valid, unexpired backend-issued approval token is required' });
-      approval.consumedAt = new Date().toISOString(); item.status = 'MATCHING_CAPABILITY'; item.publishedAt = approval.consumedAt;
-      audit(item, 'PUBLISHED_TO_INTERNAL_MATCHING', { actor: 'browser' }); persist();
-      return json(response, 201, { requestId: id, status: item.status, dispatch: 'INTERNAL_HHBA_MATCHING' });
+      const manualValid = approval && !approval.consumedAt && new Date(approval.expiresAt) > new Date() && request.headers['x-hhba-approval-token'] === approval.token;
+      if (manualValid) {
+        approval.consumedAt = new Date().toISOString(); item.status = 'MATCHING_CAPABILITY'; item.publishedAt = approval.consumedAt;
+        audit(item, 'PUBLISHED_TO_INTERNAL_MATCHING', { actor: 'browser' }); persist();
+        return json(response, 201, { requestId: id, status: item.status, dispatch: 'INTERNAL_HHBA_MATCHING' });
+      }
+      // 包工头模式:只有 DRAFT 可按策略自动发布;已进入人工审批流的仍需走完人工确认
+      if (item.status !== 'DRAFT') return json(response, 403, { error: 'a valid, unexpired backend-issued approval token is required' });
+      const decision = evaluatePolicy(item);
+      if (!decision.eligible) return json(response, 403, { error: decision.reason, approvalRequired: true });
+      const now = new Date().toISOString();
+      item.approval = { autoApproved: true, policyId: decision.policy.id, policyName: decision.policy.name, consumedAt: now };
+      item.status = 'MATCHING_CAPABILITY'; item.publishedAt = now;
+      audit(item, 'POLICY_AUTO_APPROVED', { actor: 'policy', policyId: decision.policy.id, policyName: decision.policy.name, budgetAmount: budgetAmountOf(item) }); persist();
+      return json(response, 201, { requestId: id, status: item.status, dispatch: 'INTERNAL_HHBA_MATCHING', autoApproved: true, policyId: decision.policy.id });
     }
   }
   return json(response, 404, { error: 'not found' });
