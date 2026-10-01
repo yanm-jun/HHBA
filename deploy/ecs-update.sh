@@ -38,6 +38,16 @@ for f in ${APP_FILES}; do
   echo "  更新 ${f}"
 done
 
+# systemd 实际从 server/ 子目录加载(server/server.js + server/web.js),
+# 若存在则同步过去(连同 HTML,因 web.js 从自身所在目录提供静态文件)
+if [ -d "${APP_DIR}/server" ]; then
+  echo "==> 同步到 ${APP_DIR}/server (systemd 实际加载位置)"
+  cp "${APP_DIR}/server.js" "${APP_DIR}/server/server.js"
+  cp "${APP_DIR}/web-server.js" "${APP_DIR}/server/web.js"
+  cp "${APP_DIR}/index.html" "${APP_DIR}/approve.html" \
+     "${APP_DIR}/ops.html" "${APP_DIR}/tasks.html" "${APP_DIR}/server/"
+fi
+
 echo "==> 安装依赖"
 cd "${APP_DIR}"
 npm install --omit=dev --no-audit --no-fund 2>&1 | tail -2
@@ -55,7 +65,7 @@ sleep 4
 systemctl is-active "${API_SVC}" "${WEB_SVC}"
 
 echo "==> 健康检查"
-API_PORT="$(grep -oP 'HHBA_API_PORT=\K[0-9]+' "/etc/systemd/system/${API_SVC}.service" | head -1)"
+API_PORT="$(grep -oP 'HHBA_API_PORT=\K[0-9]+' "/etc/systemd/system/${API_SVC}.service" 2>/dev/null | head -1 || true)"
 API_PORT="${API_PORT:-8787}"
 curl -fsSL --max-time 10 "http://127.0.0.1:${API_PORT}/health" || \
   { echo "API 健康检查失败,查看: journalctl -u ${API_SVC} -n 50" >&2; exit 1; }
