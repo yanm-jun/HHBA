@@ -234,6 +234,24 @@ dialog::backdrop{background:rgba(43,10,78,.70)}
         </div>
         <p class="sub" id="smtp-status" style="color:var(--faint);font-size:12.5px;margin-top:8px"></p>
       </div>
+      <div class="box" style="margin-top:16px">
+        <h3 class="sec-title" style="margin-top:0"><span class="kicker">SMS</span>验证码短信通道（阿里云短信）</h3>
+        <p class="sub" style="margin-bottom:14px">用户用手机号登录时，验证码从这里配置的阿里云短信发出。先在阿里云控制台开通短信服务、申请签名与验证码模板，再把 AccessKey 与签名/模板填到这里。密钥只保存在服务器本地，不会回传页面。</p>
+        <div class="grid2">
+          <div><label class="f" for="sms-keyid">AccessKey ID</label><input type="text" id="sms-keyid" autocomplete="off" placeholder="阿里云 AccessKey ID"></div>
+          <div><label class="f" for="sms-secret">AccessKey Secret</label><input type="password" id="sms-secret" autocomplete="off" placeholder="阿里云 AccessKey Secret"></div>
+        </div>
+        <div class="grid2">
+          <div><label class="f" for="sms-sign">短信签名</label><input type="text" id="sms-sign" placeholder="例如 HHBA"></div>
+          <div><label class="f" for="sms-template">验证码模板 Code</label><input type="text" id="sms-template" placeholder="例如 SMS_123456789"></div>
+        </div>
+        <div class="row-actions">
+          <button class="btn btn-gold btn-sm" id="sms-save">保存配置</button>
+          <button class="btn btn-ghost btn-sm" id="sms-test">发送测试短信</button>
+          <span class="notice" id="sms-notice"></span>
+        </div>
+        <p class="sub" id="sms-status" style="color:var(--faint);font-size:12.5px;margin-top:8px"></p>
+      </div>
     </section>
   </main>
 
@@ -593,6 +611,41 @@ $('#smtp-test').addEventListener('click', async () => {
   } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
 });
 document.querySelector('.tab[data-tab="notify"]').addEventListener('click', loadSmtp);
+document.querySelector('.tab[data-tab="notify"]').addEventListener('click', loadSms);
+
+/* ---------- Tab 5b: 短信通道(阿里云短信) ---------- */
+async function loadSms() {
+  const status = $('#sms-status'), notice = $('#sms-notice');
+  try {
+    const data = await api('/internal/settings/sms');
+    if (data.signName) $('#sms-sign').value = data.signName;
+    if (data.templateCode) $('#sms-template').value = data.templateCode;
+    status.textContent = data.configured
+      ? `当前状态：已配置（签名「${data.signName}」/ 模板 ${data.templateCode}，Key ${data.accessKeyIdMasked}）`
+      : '当前状态：未配置。保存后用户才能收到手机验证码。';
+  } catch (e) { status.textContent = `读取失败：${e.message}`; }
+}
+$('#sms-save').addEventListener('click', async () => {
+  const notice = $('#sms-notice'); notice.className = 'notice'; notice.textContent = '保存中…';
+  try {
+    await api('/internal/settings/sms', { method: 'POST', body: JSON.stringify({
+      accessKeyId: $('#sms-keyid').value.trim(), accessKeySecret: $('#sms-secret').value,
+      signName: $('#sms-sign').value.trim(), templateCode: $('#sms-template').value.trim(),
+    }) });
+    $('#sms-keyid').value = ''; $('#sms-secret').value = '';
+    notice.className = 'notice ok'; notice.textContent = '已保存';
+    loadSms();
+  } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
+});
+$('#sms-test').addEventListener('click', async () => {
+  const notice = $('#sms-notice'); notice.className = 'notice'; notice.textContent = '发送中…';
+  const to = prompt('请输入接收测试短信的手机号：', '');
+  if (!to) return;
+  try {
+    const data = await api('/internal/settings/sms/test', { method: 'POST', body: JSON.stringify({ to: to.trim() }) });
+    notice.className = 'notice ok'; notice.textContent = `测试短信已发送至 ${data.sentTo}，请查收`;
+  } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
+});
 $('#import-btn').addEventListener('click', async () => {
   const notice = $('#import-notice'); notice.className = 'notice'; notice.textContent = '导入中…';
   try {

@@ -1,5 +1,6 @@
 import http from 'node:http';
-import { randomUUID, createHash } from 'node:crypto';
+import https from 'node:https';
+import { randomUUID, createHash, createHmac, scryptSync, timingSafeEqual, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync, chmodSync } from 'node:fs';
 import path from 'node:path';
 import nodemailer from 'nodemailer';
@@ -12,6 +13,7 @@ const dataFile = path.join(dataDirectory, 'human-capability-requests.json');
 const policiesFile = path.join(dataDirectory, 'policies.json');
 const ledgerFile = path.join(dataDirectory, 'ledger.json');
 const executorsFile = path.join(dataDirectory, 'executors.json');
+const usersFile = path.join(dataDirectory, 'users.json');
 // 前端页面地址可配置(默认本地 UI);生产部署时设为公网域名
 const uiOrigin = process.env.HHBA_UI_ORIGIN || 'http://127.0.0.1:4173';
 
@@ -37,6 +39,64 @@ function persistSmtp() {
   writeFileSync(temporaryFile, JSON.stringify(smtpConfig, null, 2));
   chmodSync(temporaryFile, 0o600);
   renameSync(temporaryFile, smtpFile);
+}
+
+// ---- v0.6 短信通道(阿里云短信,老板在后台自配,不经手他人) ----
+const smsFile = path.join(dataDirectory, 'sms.json');
+let smsConfig = null; // {provider:'aliyun', accessKeyId, accessKeySecret, signName, templateCode}
+function loadSms() {
+  try { smsConfig = JSON.parse(readFileSync(smsFile, 'utf8')); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; smsConfig = null; }
+}
+function persistSms() {
+  mkdirSync(dataDirectory, { recursive: true });
+  const temporaryFile = `${smsFile}.${process.pid}.tmp`;
+  writeFileSync(temporaryFile, JSON.stringify(smsConfig, null, 2));
+  chmodSync(temporaryFile, 0o600);
+  renameSync(temporaryFile, smsFile);
+}
+function smsConfigured() {
+  return Boolean(smsConfig?.accessKeyId && smsConfig?.accessKeySecret && smsConfig?.signName && smsConfig?.templateCode);
+}
+// 阿里云 SendSms 签名(仅用内置 crypto/https,无新增依赖)
+function aliyunPercentEncode(s) {
+  return encodeURIComponent(s).replace(/!/g, '%21').replace(/'/g, '%27').replace(/\(/g, '%28').replace(/\)/g, '%29').replace(/\*/g, '%2A');
+}
+function sendOtpSms(phone, code) {
+  if (!smsConfigured()) throw new Error('短信通道未配置,请先在后台「通知设置」里填写阿里云短信');
+  const params = {
+    AccessKeyId: smsConfig.accessKeyId,
+    Action: 'SendSms',
+    Format: 'JSON',
+    PhoneNumbers: phone,
+    SignName: smsConfig.signName,
+    SignatureMethod: 'HMAC-SHA1',
+    SignatureNonce: randomUUID(),
+    SignatureVersion: '1.0',
+    TemplateCode: smsConfig.templateCode,
+    TemplateParam: JSON.stringify({ code }),
+    Timestamp: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+    Version: '2017-05-25',
+  };
+  const sorted = Object.keys(params).sort().map((k) => `${aliyunPercentEncode(k)}=${aliyunPercentEncode(params[k])}`).join('&');
+  const stringToSign = `GET&${aliyunPercentEncode('/')}&${aliyunPercentEncode(sorted)}`;
+  const sig = createHmac('sha1', smsConfig.accessKeySecret + '&').update(stringToSign).digest('base64');
+  const query = `${sorted}&${aliyunPercentEncode('Signature')}=${aliyunPercentEncode(sig)}`;
+  return new Promise((resolve, reject) => {
+    const req = https.get(`https://dysmsapi.aliyuncs.com/?${query}`, { timeout: 15000 }, (res) => {
+      let body = '';
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          if (data.Code === 'OK') return resolve(data);
+          reject(new Error(data.Message || data.Code || '短信发送失败'));
+        } catch (error) { reject(new Error(`短信接口返回异常:${body.slice(0, 120)}`)); }
+      });
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('短信接口超时')); });
+    req.on('error', reject);
+  });
 }
 const otpStore = new Map(); // contactKey -> {code, expiresAt, attempts, lastSentAt, hourlySent:[ts]}
 const userSessions = new Map(); // sessionId -> {userId, contactKey, displayName, expiresAt}
@@ -200,13 +260,86 @@ function persistExecutors() {
   writeFileSync(temporaryFile, JSON.stringify({ version: 1, executors: [...executors.values()] }, null, 2));
   renameSync(temporaryFile, executorsFile);
 }
-// 找不到则按基准分 100 建档(老执行者自动保留)
+// ---- v0.6 通用用户模型:邮箱/手机登录归属用户,角色区分执行者与老板 ----
+const users = new Map(); // userId -> {id, displayName, roles, contacts:[{type,value}], passwordHash, createdAt, updatedAt}
+function loadUsers() {
+  try {
+    const saved = JSON.parse(readFileSync(usersFile, 'utf8'));
+    for (const item of saved.users || []) users.set(item.id, item);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+function persistUsers() {
+  mkdirSync(dataDirectory, { recursive: true });
+  const temporaryFile = `${usersFile}.${process.pid}.tmp`;
+  writeFileSync(temporaryFile, JSON.stringify({ version: 1, users: [...users.values()] }, null, 2));
+  renameSync(temporaryFile, usersFile);
+}
+function getUser(id) {
+  return users.get(String(id).trim()) || null;
+}
+// 登录即建档:按联系方式找用户,找不到则新建(默认执行者角色);老执行者档案自动迁移展示名
+function getOrCreateUser(contact) {
+  const userId = userIdFor(contact);
+  let user = users.get(userId);
+  if (!user) {
+    const now = new Date().toISOString();
+    const legacy = executors.get(userId);
+    user = {
+      id: userId,
+      displayName: legacy?.displayName || maskContact(contact),
+      roles: ['executor'],
+      contacts: [{ type: contact.type, value: contact.value }],
+      passwordHash: null,
+      createdAt: now, updatedAt: now,
+    };
+    users.set(userId, user);
+    persistUsers();
+  } else {
+    // 同一用户换了联系方式登录,合并联系方式
+    if (!user.contacts.some((c) => c.type === contact.type && c.value === contact.value)) {
+      user.contacts.push({ type: contact.type, value: contact.value });
+      user.updatedAt = new Date().toISOString();
+      persistUsers();
+    }
+  }
+  return user;
+}
+function publicUser(user) {
+  const executor = executors.get(user.id);
+  return {
+    id: user.id,
+    displayName: user.displayName,
+    roles: user.roles || ['executor'],
+    hasPassword: Boolean(user.passwordHash),
+    reliabilityScore: executor?.reliabilityScore ?? 100,
+    completedTasks: executor?.completedTasks ?? 0,
+    rejectedTasks: executor?.rejectedTasks ?? 0,
+  };
+}
+// ---- 密码:scrypt 哈希(内置 crypto,无新增依赖) ----
+function hashPassword(password) {
+  const salt = randomBytes(16).toString('hex');
+  const derived = scryptSync(password, salt, 64).toString('hex');
+  return `scrypt$${salt}$${derived}`;
+}
+function verifyPassword(password, stored) {
+  if (!stored) return false;
+  const parts = String(stored).split('$');
+  if (parts.length !== 3 || parts[0] !== 'scrypt') return false;
+  const [, salt, expected] = parts;
+  const derived = scryptSync(String(password), salt, 64);
+  const expectedBuf = Buffer.from(expected, 'hex');
+  return derived.length === expectedBuf.length && timingSafeEqual(derived, expectedBuf);
+}
+// 找不到则按基准分 100 建档(老执行者自动保留);展示名优先取用户档案
 function getExecutor(id) {
   const key = String(id).trim();
   let executor = executors.get(key);
   if (!executor) {
     const now = new Date().toISOString();
-    executor = { id: key, displayName: null, reliabilityScore: 100, completedTasks: 0, rejectedTasks: 0, createdAt: now, updatedAt: now };
+    executor = { id: key, displayName: users.get(key)?.displayName || null, reliabilityScore: 100, completedTasks: 0, rejectedTasks: 0, createdAt: now, updatedAt: now };
     executors.set(key, executor);
     persistExecutors();
   }
@@ -398,7 +531,9 @@ loadRequests();
 loadPolicies();
 loadLedger();
 loadExecutors();
+loadUsers();
 loadSmtp();
+loadSms();
 
 http.createServer(async (request, response) => {
   if (request.method === 'OPTIONS') return json(response, 204, {});
@@ -427,15 +562,12 @@ http.createServer(async (request, response) => {
     });
   }
 
-  // ---- v0.4 用户验证码登录 ----
+  // ---- v0.6 用户验证码登录:QQ 邮箱 + 手机短信,归属通用用户 ----
   if (request.method === 'POST' && request.url === '/api/auth/request-code') {
     try {
       const body = await readBody(request);
       const contact = normalizeContact(body.contact);
       if (!contact) return json(response, 400, { error: '请输入正确的手机号或邮箱' });
-      if (contact.type === 'phone') {
-        return json(response, 400, { error: '手机短信通道即将上线,请先使用 QQ 邮箱登录' });
-      }
       const key = contact.type + ':' + contact.value;
       const now = Date.now();
       const prev = otpStore.get(key);
@@ -443,17 +575,20 @@ http.createServer(async (request, response) => {
         return json(response, 429, { error: '发送太频繁,请 60 秒后再试' });
       }
       const hourly = (prev?.hourlySent || []).filter((ts) => now - ts < 60 * 60 * 1000);
-      if (hourly.length >= 5) return json(response, 429, { error: '该邮箱一小时内发送已达上限,请稍后再试' });
+      const channelName = contact.type === 'phone' ? '该手机号' : '该邮箱';
+      if (hourly.length >= 5) return json(response, 429, { error: `${channelName}一小时内发送已达上限,请稍后再试` });
       const code = String(Math.floor(100000 + Math.random() * 900000));
       otpStore.set(key, { code, expiresAt: now + OTP_TTL_MS, attempts: 0, lastSentAt: now, hourlySent: [...hourly, now] });
       const out = { sentTo: maskContact(contact), expiresIn: OTP_TTL_MS / 1000 };
-      if (OTP_DEBUG && (!smtpConfig?.host || !smtpConfig?.user || !smtpConfig?.pass)) {
-        out.debugCode = code; // 本地联调桩:未配 SMTP 时跳过真实发送,生产环境绝不开启
+      const channelReady = contact.type === 'phone' ? smsConfigured() : Boolean(smtpConfig?.host && smtpConfig?.user && smtpConfig?.pass);
+      if (OTP_DEBUG && !channelReady) {
+        out.debugCode = code; // 本地联调桩:未配通道时跳过真实发送,生产环境绝不开启
         out.stubbed = true;
         return json(response, 200, out);
       }
       try {
-        await sendOtpEmail(contact.value, code);
+        if (contact.type === 'phone') await sendOtpSms(contact.value, code);
+        else await sendOtpEmail(contact.value, code);
       } catch (error) {
         otpStore.delete(key);
         return json(response, 502, { error: `验证码发送失败:${error.message}` });
@@ -485,26 +620,63 @@ http.createServer(async (request, response) => {
         return json(response, 400, { error: `验证码不正确(还剩 ${5 - record.attempts} 次)` });
       }
       otpStore.delete(key);
-      const userId = userIdFor(contact);
-      const displayName = maskContact(contact);
-      const executor = getExecutor(userId);
-      if (!executor.displayName) { executor.displayName = displayName; persistExecutors(); }
+      const user = getOrCreateUser(contact);
       const sessionId = `hhba_user_${randomUUID()}`;
       const expiresAt = new Date(now + userSessionLifetimeMs).toISOString();
-      userSessions.set(sessionId, { userId, contactKey: key, displayName: executor.displayName, expiresAt });
-      return jsonWithHeaders(response, 200, {
-        user: { id: userId, displayName: executor.displayName, reliabilityScore: executor.reliabilityScore ?? 100, completedTasks: executor.completedTasks ?? 0, rejectedTasks: executor.rejectedTasks ?? 0 },
-      }, {
+      userSessions.set(sessionId, { userId: user.id, contactKey: key, displayName: user.displayName, expiresAt });
+      return jsonWithHeaders(response, 200, { user: publicUser(user) }, {
         'Set-Cookie': `hhba_user_session=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(userSessionLifetimeMs / 1000)}`,
       });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  // 账号密码登录(需先通过验证码登录并设置过密码)
+  if (request.method === 'POST' && request.url === '/api/auth/login-password') {
+    try {
+      const body = await readBody(request);
+      const contact = normalizeContact(body.contact);
+      const password = String(body.password || '');
+      if (!contact || !password) return json(response, 400, { error: '请输入账号与密码' });
+      const user = getUser(userIdFor(contact));
+      if (!user || !verifyPassword(password, user.passwordHash)) {
+        return json(response, 401, { error: '账号或密码不正确' });
+      }
+      // 密码登录顺带合并本次联系方式
+      getOrCreateUser(contact);
+      const now = Date.now();
+      const sessionId = `hhba_user_${randomUUID()}`;
+      const expiresAt = new Date(now + userSessionLifetimeMs).toISOString();
+      userSessions.set(sessionId, { userId: user.id, contactKey: contact.type + ':' + contact.value, displayName: user.displayName, expiresAt });
+      return jsonWithHeaders(response, 200, { user: publicUser(user) }, {
+        'Set-Cookie': `hhba_user_session=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(userSessionLifetimeMs / 1000)}`,
+      });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  // 已登录用户设置/修改登录密码(需先通过验证码证明归属)
+  if (request.method === 'POST' && request.url === '/api/auth/set-password') {
+    try {
+      const session = getUserSession(request);
+      if (!session) return json(response, 401, { error: '请先登录' });
+      const body = await readBody(request);
+      const password = String(body.password || '');
+      if (password.length < 6) return json(response, 400, { error: '密码至少 6 位' });
+      if (password.length > 72) return json(response, 400, { error: '密码过长' });
+      const user = getUser(session.userId);
+      if (!user) return json(response, 401, { error: '用户不存在,请重新登录' });
+      user.passwordHash = hashPassword(password);
+      user.updatedAt = new Date().toISOString();
+      persistUsers();
+      return json(response, 200, { status: 'password_set', hasPassword: true });
     } catch (error) { return json(response, 400, { error: error.message }); }
   }
 
   if (request.method === 'GET' && request.url === '/api/auth/me') {
     const session = getUserSession(request);
     if (!session) return json(response, 401, { error: '尚未登录' });
-    const executor = getExecutor(session.userId);
-    return json(response, 200, { user: { id: session.userId, displayName: executor.displayName, reliabilityScore: executor.reliabilityScore ?? 100, completedTasks: executor.completedTasks ?? 0, rejectedTasks: executor.rejectedTasks ?? 0 } });
+    const user = getUser(session.userId);
+    if (!user) return json(response, 401, { error: '用户不存在,请重新登录' });
+    return json(response, 200, { user: publicUser(user) });
   }
 
   if (request.method === 'POST' && request.url === '/api/auth/logout') {
@@ -607,6 +779,73 @@ http.createServer(async (request, response) => {
       await sendOtpEmail(to, '123456');
       return json(response, 200, { sentTo: to });
     } catch (error) { return json(response, 502, { error: `测试发送失败:${error.message}` }); }
+  }
+
+  // 短信通道设置(阿里云短信,需 internal key;密钥不回传页面)
+  if (request.url === '/internal/settings/sms') {
+    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    if (request.method === 'GET') {
+      return json(response, 200, {
+        configured: smsConfigured(),
+        provider: 'aliyun',
+        signName: smsConfig?.signName || '',
+        templateCode: smsConfig?.templateCode || '',
+        accessKeyIdMasked: smsConfig?.accessKeyId ? smsConfig.accessKeyId.slice(0, 4) + '****' : '',
+      });
+    }
+    if (request.method === 'POST') {
+      try {
+        const body = await readBody(request);
+        const accessKeyId = String(body.accessKeyId || '').trim();
+        const accessKeySecret = String(body.accessKeySecret || '');
+        const signName = String(body.signName || '').trim();
+        const templateCode = String(body.templateCode || '').trim();
+        if (!accessKeyId || !accessKeySecret || !signName || !templateCode) {
+          return json(response, 400, { error: 'AccessKeyId / AccessKeySecret / 短信签名 / 模板 Code 均不能为空' });
+        }
+        smsConfig = { provider: 'aliyun', accessKeyId, accessKeySecret, signName, templateCode };
+        persistSms();
+        return json(response, 200, { configured: true, provider: 'aliyun', signName, templateCode });
+      } catch (error) { return json(response, 400, { error: error.message }); }
+    }
+    return json(response, 405, { error: 'method not allowed' });
+  }
+  if (request.method === 'POST' && request.url === '/internal/settings/sms/test') {
+    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    try {
+      const body = await readBody(request);
+      const to = String(body.to || '').trim();
+      if (!/^1\d{10}$/.test(to)) return json(response, 400, { error: 'to 需为手机号' });
+      await sendOtpSms(to, '123456');
+      return json(response, 200, { sentTo: to });
+    } catch (error) { return json(response, 502, { error: `测试发送失败:${error.message}` }); }
+  }
+
+  // 用户管理(需 internal key):列表与角色授予
+  if (request.method === 'GET' && request.url === '/internal/users') {
+    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    return json(response, 200, {
+      users: [...users.values()].map((u) => ({
+        id: u.id, displayName: u.displayName, roles: u.roles || ['executor'],
+        contacts: (u.contacts || []).map((c) => ({ type: c.type, value: maskContact(c) })),
+        hasPassword: Boolean(u.passwordHash), createdAt: u.createdAt,
+      })),
+    });
+  }
+  const userRolesMatch = request.url.match(/^\/internal\/users\/([^/]+)\/roles$/);
+  if (userRolesMatch && request.method === 'POST') {
+    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    try {
+      const user = getUser(decodeURIComponent(userRolesMatch[1]));
+      if (!user) return json(response, 404, { error: '用户不存在' });
+      const body = await readBody(request);
+      const roles = [...new Set((Array.isArray(body.roles) ? body.roles : []).map((r) => String(r).trim()).filter((r) => ['executor', 'boss'].includes(r)))];
+      if (!roles.length) return json(response, 400, { error: 'roles 至少包含 executor 或 boss 之一' });
+      user.roles = roles;
+      user.updatedAt = new Date().toISOString();
+      persistUsers();
+      return json(response, 200, { user: publicUser(user) });
+    } catch (error) { return json(response, 400, { error: error.message }); }
   }
 
   // 积分账本查询(需 internal key 或 ops session):余额 + 账本流水

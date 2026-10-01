@@ -103,22 +103,44 @@ dialog::backdrop{background:rgba(43,10,78,.55)}
 
 <div class="wrap">
   <section id="login-view" class="login">
-    <span class="kicker">EXECUTOR ACCESS · 执行者接单</span>
+    <span class="kicker">HHBA ACCESS · 统一登录</span>
     <h1>来接活。</h1>
-    <p class="hint">用手机号或 QQ 邮箱登录，验证码 5 分钟内有效。登录后即可认领任务、提交交付。</p>
-    <label class="f" for="contact">手机号 / QQ 邮箱</label>
-    <input id="contact" type="text" autocomplete="off" placeholder="例如 13800001111 或 name@qq.com">
-    <label class="f" for="otp-code">验证码</label>
-    <div style="display:flex;gap:10px">
-      <input id="otp-code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位数字" style="flex:1">
-      <button class="btn btn-ghost" id="get-code" style="white-space:nowrap">获取验证码</button>
+    <p class="hint">手机号 / 邮箱验证码登录，或账号密码登录。登录后即可认领任务、提交交付。</p>
+    <div class="tabs" role="tablist" style="margin-bottom:18px">
+      <button class="tab active" data-ltab="otp">验证码登录</button>
+      <button class="tab" data-ltab="pwd">账号密码登录</button>
     </div>
-    <div style="margin-top:18px"><button class="btn btn-gold" id="login-btn" style="width:100%;justify-content:center">登录进入</button></div>
+    <div id="ltab-otp">
+      <label class="f" for="contact">手机号 / 邮箱</label>
+      <input id="contact" type="text" autocomplete="off" placeholder="例如 13800001111 或 name@qq.com">
+      <label class="f" for="otp-code">验证码</label>
+      <div style="display:flex;gap:10px">
+        <input id="otp-code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位数字" style="flex:1">
+        <button class="btn btn-ghost" id="get-code" style="white-space:nowrap">获取验证码</button>
+      </div>
+      <div style="margin-top:18px"><button class="btn btn-gold" id="login-btn" style="width:100%;justify-content:center">登录进入</button></div>
+    </div>
+    <div id="ltab-pwd" hidden>
+      <label class="f" for="pwd-contact">手机号 / 邮箱</label>
+      <input id="pwd-contact" type="text" autocomplete="username" placeholder="注册时用的手机号或邮箱">
+      <label class="f" for="pwd-password">密码</label>
+      <input id="pwd-password" type="password" autocomplete="current-password" placeholder="登录密码">
+      <div style="margin-top:18px"><button class="btn btn-gold" id="pwd-login-btn" style="width:100%;justify-content:center">登录进入</button></div>
+      <p class="hint" style="margin-top:10px">还没有密码？先用验证码登录一次，再在页面顶部设置登录密码。</p>
+    </div>
     <div class="notice" id="login-notice"></div>
   </section>
 
   <main id="app-view" hidden>
-    <div class="me-bar"><span>当前执行者</span><b class="mono" id="me-id">–</b><span id="me-score" class="pill pill-ice">可靠分 –</span><div class="spacer"></div><button class="linklike" id="switch-id">切换身份</button></div>
+    <div class="me-bar"><span>当前用户</span><b class="mono" id="me-id">–</b><span id="me-score" class="pill pill-ice">可靠分 –</span><div class="spacer"></div><button class="linklike" id="set-pwd-btn" hidden>设置密码</button><button class="linklike" id="switch-id">切换身份</button></div>
+    <div id="set-pwd-box" hidden style="margin:12px 0;padding:14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm)">
+      <label class="f" for="new-password">设置登录密码（至少 6 位）</label>
+      <div style="display:flex;gap:10px">
+        <input id="new-password" type="password" autocomplete="new-password" placeholder="新密码" style="flex:1">
+        <button class="btn btn-ghost btn-sm" id="set-pwd-submit" style="white-space:nowrap">保存</button>
+      </div>
+      <div class="notice" id="set-pwd-notice"></div>
+    </div>
     <div class="tabs" role="tablist">
       <button class="tab active" data-tab="open">可接任务</button>
       <button class="tab" data-tab="mine">我的任务</button>
@@ -197,7 +219,14 @@ const MINE_STATUS = { IN_PROGRESS: ['执行中', 'pill-ice'], REWORK: ['返工�
 let tasks = [], me = { id: '', name: '' };
 const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.6"><path d="M20 6L9 17l-5-5"/></svg>';
 
-/* 登录:手机号 / QQ 邮箱 + 验证码 */
+/* 登录:验证码 / 账号密码 双通道 */
+document.querySelectorAll('#login-view .tab').forEach((t) => t.addEventListener('click', () => {
+  document.querySelectorAll('#login-view .tab').forEach((x) => x.classList.remove('active'));
+  t.classList.add('active');
+  $('#ltab-otp').hidden = t.dataset.ltab !== 'otp';
+  $('#ltab-pwd').hidden = t.dataset.ltab !== 'pwd';
+  const notice = $('#login-notice'); notice.className = 'notice'; notice.textContent = '';
+}));
 let codeTimer = null;
 function startCodeCountdown() {
   const btn = $('#get-code');
@@ -226,9 +255,33 @@ $('#get-code').addEventListener('click', async () => {
 function enterApp(user) {
   me = { id: user.id, name: user.displayName, score: user.reliabilityScore ?? 100, completed: user.completedTasks ?? 0, rejected: user.rejectedTasks ?? 0 };
   $('#me-id').textContent = user.displayName || user.id;
+  const roles = (user.roles || []).join(' / ');
+  $('#me-score').textContent = `可靠分 ${user.reliabilityScore ?? 100}`;
+  $('#me-score').title = `角色:${roles || 'executor'}`;
+  $('#set-pwd-btn').hidden = Boolean(user.hasPassword);
+  $('#set-pwd-box').hidden = true;
   $('#login-view').hidden = true; $('#app-view').hidden = false; $('#logout').hidden = false;
   refreshAll();
 }
+$('#set-pwd-btn').addEventListener('click', () => { $('#set-pwd-box').hidden = !$('#set-pwd-box').hidden; });
+$('#set-pwd-submit').addEventListener('click', async () => {
+  const notice = $('#set-pwd-notice'); notice.className = 'notice'; notice.textContent = '保存中…';
+  const password = $('#new-password').value;
+  try {
+    await api('/api/auth/set-password', { method: 'POST', body: JSON.stringify({ password }) });
+    notice.className = 'notice ok'; notice.textContent = '密码已设置,下次可用账号密码直接登录';
+    $('#set-pwd-btn').hidden = true; $('#set-pwd-box').hidden = true; $('#new-password').value = '';
+  } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
+});
+$('#pwd-login-btn').addEventListener('click', async () => {
+  const notice = $('#login-notice'); notice.className = 'notice'; notice.textContent = '登录中…';
+  const contact = $('#pwd-contact').value.trim(), password = $('#pwd-password').value;
+  if (!contact || !password) { notice.className = 'notice error'; notice.textContent = '请填写账号和密码'; return; }
+  try {
+    const data = await api('/api/auth/login-password', { method: 'POST', body: JSON.stringify({ contact, password }) });
+    enterApp(data.user);
+  } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
+});
 $('#login-btn').addEventListener('click', async () => {
   const notice = $('#login-notice'); notice.className = 'notice'; notice.textContent = '登录中…';
   const contact = $('#contact').value.trim(), code = $('#otp-code').value.trim();
