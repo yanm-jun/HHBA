@@ -179,6 +179,126 @@ function persistPolicies() {
   renameSync(temporaryFile, policiesFile);
 }
 
+// ---- v0.9 任务模板化:预设模板快速发单,减少每次手填 ----
+// 模板:{id, name, description, category, humanGapType, capabilityRequirements[], acceptanceCriteria[],
+//       deliverables[], evidenceRequirements[], suggestedBudget:{min,max}, estimatedHours, tags[],
+//       enabled, createdAt, updatedAt}
+const taskTemplatesFile = path.join(dataDirectory, 'task-templates.json');
+const taskTemplates = new Map();
+function defaultTaskTemplates() {
+  const now = new Date().toISOString();
+  return [
+    {
+      id: 'tpl_h5_walkthrough',
+      name: 'H5/落地页真机走查',
+      description: '在真实手机上打开指定 H5 页面或落地页,按检查清单逐项走查并截图回传',
+      category: 'H5走查',
+      humanGapType: 'DIGITAL_EXECUTION',
+      capabilityRequirements: ['拥有可正常上网的真实手机(Android 或 iOS)', '能在手机浏览器或微信内打开指定链接', '会按检查清单逐项验证并截图'],
+      acceptanceCriteria: ['在真机上完整打开目标页面,加载无白屏/报错', '按检查清单逐项验证并给出通过/不通过结论', '每个检查项附带真机截图证据', '发现的问题附复现步骤说明'],
+      deliverables: ['走查结论(通过/不通过 + 问题清单)', '真机截图包(按检查项命名)', '问题复现说明(如有)'],
+      evidenceRequirements: ['真机截图(带手机状态栏,不得用模拟器)', '页面加载录屏(可选)'],
+      suggestedBudget: { min: 20, max: 80 },
+      estimatedHours: 1,
+      tags: ['真机', 'H5', '走查', '截图'],
+      enabled: true, createdAt: now, updatedAt: now,
+    },
+    {
+      id: 'tpl_miniprogram_smoke',
+      name: '小程序/App 冒烟测试',
+      description: '按给定冒烟用例,在真机上对小程序或 App 做核心流程冒烟,记录问题截图',
+      category: '小程序冒烟',
+      humanGapType: 'DIGITAL_EXECUTION',
+      capabilityRequirements: ['拥有可正常上网的真实手机', '已安装目标小程序/App 或可扫码进入', '理解冒烟测试用例并能严格执行'],
+      acceptanceCriteria: ['按给定冒烟用例在真机上走完核心流程', '每个用例标记通过/失败', '失败用例附真机截图与复现步骤', '无阻塞性问题方可判通过'],
+      deliverables: ['冒烟测试报告(用例 × 通过/失败)', '失败用例真机截图', '阻塞性问题说明(如有)'],
+      evidenceRequirements: ['真机截图(带手机状态栏)', '关键步骤录屏(可选)'],
+      suggestedBudget: { min: 30, max: 120 },
+      estimatedHours: 2,
+      tags: ['真机', '小程序', '冒烟测试', '截图'],
+      enabled: true, createdAt: now, updatedAt: now,
+    },
+    {
+      id: 'tpl_sandbox_payment',
+      name: '沙箱表单/支付链路验证',
+      description: '在沙箱/测试环境走完表单填写到支付全链路,截图留证(不涉及真实资金)',
+      category: '表单支付验证',
+      humanGapType: 'DIGITAL_EXECUTION',
+      capabilityRequirements: ['拥有可正常上网的真实手机', '可进入指定的沙箱/测试环境(不涉及真实资金)', '能按步骤完成表单填写到支付全链路'],
+      acceptanceCriteria: ['在沙箱环境走完表单填写→提交→支付全链路', '每个环节截图留证', '异常环节记录错误信息与复现步骤', '确认全程未使用真实资金/真实支付'],
+      deliverables: ['全链路验证报告(环节 × 通过/失败)', '各环节截图证据包', '异常记录(如有)'],
+      evidenceRequirements: ['各环节真机截图', '沙箱环境标识截图(证明非生产环境)'],
+      suggestedBudget: { min: 40, max: 150 },
+      estimatedHours: 2,
+      tags: ['沙箱', '表单', '支付链路', '真机'],
+      enabled: true, createdAt: now, updatedAt: now,
+    },
+  ];
+}
+function loadTaskTemplates() {
+  try {
+    const saved = JSON.parse(readFileSync(taskTemplatesFile, 'utf8'));
+    for (const item of saved.templates || []) taskTemplates.set(item.id, item);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  // 首次启动:写入 3 个内置首发模板
+  if (taskTemplates.size === 0) {
+    for (const tpl of defaultTaskTemplates()) taskTemplates.set(tpl.id, tpl);
+    persistTaskTemplates();
+  }
+}
+function persistTaskTemplates() {
+  mkdirSync(dataDirectory, { recursive: true });
+  const temporaryFile = `${taskTemplatesFile}.${process.pid}.tmp`;
+  writeFileSync(temporaryFile, JSON.stringify({ version: 1, templates: [...taskTemplates.values()] }, null, 2));
+  renameSync(temporaryFile, taskTemplatesFile);
+}
+// 创建/更新模板的字段校验(风格与 normalizePolicy 一致)
+function normalizeTaskTemplate(input, existing) {
+  const now = new Date().toISOString();
+  const rawId = input.id ?? existing?.id;
+  const id = rawId != null && String(rawId).trim() ? String(rawId).trim() : `tpl_${randomUUID().slice(0, 8)}`;
+  const name = String(input.name ?? existing?.name ?? '').trim();
+  if (!name) throw new Error('name is required');
+  const description = String(input.description ?? existing?.description ?? '').trim();
+  const category = String(input.category ?? existing?.category ?? '').trim();
+  if (!category) throw new Error('category is required');
+  const humanGapType = String(input.humanGapType ?? input.human_gap_type ?? existing?.humanGapType ?? 'DIGITAL_EXECUTION').trim();
+  if (!capabilityTypes.has(humanGapType)) throw new Error(`humanGapType must be one of: ${[...capabilityTypes].join(', ')}`);
+  const capabilityRequirements = list(input.capabilityRequirements ?? input.capability_requirements ?? existing?.capabilityRequirements).map((s) => String(s).trim()).filter(Boolean);
+  if (!capabilityRequirements.length) throw new Error('capabilityRequirements is required');
+  const acceptanceCriteria = list(input.acceptanceCriteria ?? input.acceptance_criteria ?? existing?.acceptanceCriteria).map((s) => String(s).trim()).filter(Boolean);
+  if (!acceptanceCriteria.length) throw new Error('acceptanceCriteria is required');
+  const sb = input.suggestedBudget ?? input.suggested_budget ?? existing?.suggestedBudget ?? null;
+  let suggestedBudget = null;
+  if (sb != null) {
+    const min = Number(sb.min), max = Number(sb.max);
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min < 0 || max < min) {
+      throw new Error('suggestedBudget must be {min, max} with 0 <= min <= max');
+    }
+    suggestedBudget = { min, max };
+  }
+  const hoursRaw = input.estimatedHours ?? input.estimated_hours ?? existing?.estimatedHours ?? null;
+  let estimatedHours = null;
+  if (hoursRaw != null && hoursRaw !== '') {
+    estimatedHours = Number(hoursRaw);
+    if (!Number.isFinite(estimatedHours) || estimatedHours <= 0) throw new Error('estimatedHours must be a positive number');
+  }
+  const enabled = input.enabled !== undefined ? Boolean(input.enabled) : (existing?.enabled ?? true);
+  return {
+    id, name, description, category, humanGapType,
+    capabilityRequirements,
+    acceptanceCriteria,
+    deliverables: list(input.deliverables ?? existing?.deliverables).map((s) => String(s).trim()).filter(Boolean),
+    evidenceRequirements: list(input.evidenceRequirements ?? input.evidence_requirements ?? existing?.evidenceRequirements).map((s) => String(s).trim()).filter(Boolean),
+    suggestedBudget, estimatedHours,
+    tags: list(input.tags ?? existing?.tags).map((t) => String(t).trim()).filter(Boolean),
+    enabled,
+    createdAt: existing?.createdAt || now, updatedAt: now,
+  };
+}
+
 // ---- 积分账本:暂不碰真实金钱,积分只是数字 ----
 const BOSS_INITIAL_CREDITS = 100000;
 const ledger = { entries: [], balances: {} };
@@ -688,6 +808,7 @@ function internalRequestView(item) { return { ...serialize(item), assignment: it
 
 loadRequests();
 loadPolicies();
+loadTaskTemplates();
 loadLedger();
 loadExecutors();
 loadFeedbacks();
@@ -709,6 +830,96 @@ http.createServer(async (request, response) => {
         autoApproval: policyCheck.eligible
           ? { eligible: true, policyId: policyCheck.policy.id, policyName: policyCheck.policy.name }
           : { eligible: false, reason: policyCheck.reason } });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  // v0.9:任务模板列表(公开):只返回启用的模板
+  if (request.method === 'GET' && request.url === '/api/task-templates') {
+    const templates = [...taskTemplates.values()].filter((t) => t.enabled);
+    return json(response, 200, { templates, total: templates.length });
+  }
+
+  // v0.9:任务模板详情(公开)
+  const templateDetailMatch = request.url.match(/^\/api\/task-templates\/([^/]+)$/);
+  if (templateDetailMatch && request.method === 'GET') {
+    const tpl = taskTemplates.get(decodeURIComponent(templateDetailMatch[1]).trim());
+    if (!tpl || !tpl.enabled) return json(response, 404, { error: 'task template not found' });
+    return json(response, 200, { template: tpl });
+  }
+
+  // v0.9:创建/更新任务模板(需 internal key)
+  if (request.method === 'POST' && request.url === '/api/task-templates') {
+    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    try {
+      const body = await readBody(request);
+      const existing = body.id ? taskTemplates.get(String(body.id).trim()) : null;
+      if (body.id && !existing) return json(response, 404, { error: 'task template not found' });
+      const tpl = normalizeTaskTemplate(body, existing);
+      taskTemplates.set(tpl.id, tpl);
+      persistTaskTemplates();
+      return json(response, existing ? 200 : 201, { template: tpl });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  // v0.9:禁用任务模板(需 internal key,软删除:保留数据,列表不再展示)
+  const templateDisableMatch = request.url.match(/^\/api\/task-templates\/([^/]+)$/);
+  if (templateDisableMatch && request.method === 'DELETE') {
+    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    const tpl = taskTemplates.get(decodeURIComponent(templateDisableMatch[1]).trim());
+    if (!tpl) return json(response, 404, { error: 'task template not found' });
+    tpl.enabled = false;
+    tpl.updatedAt = new Date().toISOString();
+    persistTaskTemplates();
+    return json(response, 200, { disabled: tpl.id });
+  }
+
+  // v0.9:从模板创建任务(公开,需用户登录或 internal key)
+  // 注意:必须放在 /api/human-capability-requests/:id 通配路由之前,否则会被当成任务 id
+  if (request.method === 'POST' && request.url === '/api/human-capability-requests/from-template') {
+    const session = getUserSession(request);
+    if (!session && !hasInternalAccess(request)) return json(response, 401, { error: '请先登录或使用 internal key' });
+    try {
+      const body = await readBody(request);
+      const templateId = String(body.templateId ?? body.template_id ?? '').trim();
+      const tpl = taskTemplates.get(templateId);
+      if (!tpl || !tpl.enabled) return json(response, 404, { error: 'task template not found' });
+      // 模板字段做默认值,调用方可覆盖(goal/budget/deadline/preferredExecutor/location 等)
+      const merged = {
+        goal: String(body.goal ?? `${tpl.name}: ${tpl.description}`).trim(),
+        human_gap: { type: tpl.humanGapType, reason: String(body.humanGapReason ?? body.human_gap_reason ?? tpl.description).trim() },
+        capability_requirements: body.capabilityRequirements ?? body.capability_requirements ?? tpl.capabilityRequirements,
+        acceptance_criteria: body.acceptanceCriteria ?? body.acceptance_criteria ?? tpl.acceptanceCriteria,
+        deliverables: body.deliverables ?? tpl.deliverables,
+        evidence_requirements: body.evidenceRequirements ?? body.evidence_requirements ?? tpl.evidenceRequirements,
+        budget: body.budget ?? (tpl.suggestedBudget ? tpl.suggestedBudget.min : null),
+        deadline: body.deadline ?? null,
+        location: body.location ?? null,
+        preferredExecutor: body.preferredExecutor ?? body.preferred_executor ?? null,
+        autoApproveHours: body.autoApproveHours ?? body.auto_approve_hours,
+        foreman: body.foreman,
+        agent_context: body.agent_context,
+      };
+      const item = normalize(merged);
+      item.templateId = tpl.id;
+      item.templateName = tpl.name;
+      // 预算超出模板建议范围:给出 warning,不阻止
+      let budgetWarning = null;
+      const amount = budgetAmountOf(item);
+      const { min, max } = tpl.suggestedBudget || {};
+      if (amount != null && min != null && max != null && (amount < min || amount > max)) {
+        budgetWarning = `预算 ${amount} 超出模板建议范围 ${min}-${max}`;
+      }
+      audit(item, 'CREATED_FROM_TEMPLATE', { actor: session ? session.userId : 'internal', templateId: tpl.id, templateName: tpl.name });
+      requests.set(item.id, item);
+      persist();
+      const policyCheck = evaluatePolicy(item);
+      return json(response, 201, {
+        id: item.id, status: item.status, templateId: tpl.id, templateName: tpl.name,
+        budgetWarning, approvalRequired: true,
+        autoApproval: policyCheck.eligible
+          ? { eligible: true, policyId: policyCheck.policy.id, policyName: policyCheck.policy.name }
+          : { eligible: false, reason: policyCheck.reason },
+      });
     } catch (error) { return json(response, 400, { error: error.message }); }
   }
 
