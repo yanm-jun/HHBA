@@ -10,7 +10,9 @@ set -euo pipefail
 APP_DIR="/opt/hhba-demo"
 API_SVC="hhba-demo-api"
 WEB_SVC="hhba-demo-web"
-REPO_URL="https://github.com/yanm-jun/HHBA.git"
+# 应用文件下载源(jsDelivr,国内可达;pin 到 commit 保证 immutable)
+FILE_BASE="https://cdn.jsdelivr.net/gh/yanm-jun/HHBA@2fe7d57"
+APP_FILES="server.js web-server.js package.json package-lock.json index.html approve.html ops.html tasks.html"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "请用 root / sudo 运行: sudo bash deploy/ecs-update.sh" >&2
@@ -29,20 +31,11 @@ BAK="/opt/hhba-demo.bak.$(date +%Y%m%d%H%M%S)"
 echo "==> 备份 ${APP_DIR} -> ${BAK}"
 cp -a "${APP_DIR}" "${BAK}"
 
-TMP="$(mktemp -d)"
-trap 'rm -rf "${TMP}"' EXIT
-echo "==> 从 GitHub 拉取最新代码"
-git clone --depth 1 "${REPO_URL}" "${TMP}/repo" 2>&1 | tail -1
-
-echo "==> 替换应用文件(保留 data/ 与 /etc/hhba-demo.env)"
-for f in server.js web-server.js package.json package-lock.json \
-         index.html approve.html ops.html tasks.html; do
-  if [ -f "${TMP}/repo/${f}" ]; then
-    cp "${TMP}/repo/${f}" "${APP_DIR}/"
-    echo "  更新 ${f}"
-  else
-    echo "  跳过 ${f}(仓库中没有)"
-  fi
+echo "==> 下载应用文件(来自 ${FILE_BASE})"
+for f in ${APP_FILES}; do
+  curl -fsSL --max-time 60 --retry 3 "${FILE_BASE}/${f}" -o "${APP_DIR}/${f}" \
+    || { echo "下载 ${f} 失败,请检查网络后重跑" >&2; exit 1; }
+  echo "  更新 ${f}"
 done
 
 echo "==> 安装依赖"
