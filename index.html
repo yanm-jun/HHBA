@@ -4,223 +4,104 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HHBA · AI 雇佣人类</title>
-<meta name="description" content="HHBA：你定预算和规则，你的 AI 在规则内自动拆单、发单、管人、盯进度、验收、结算。Codex Cloud、Cursor、OpenClaw 都可以是工头。">
+<meta name="description" content="你定预算和规则，你的 AI 在规则内自动找人把活干完。AI 当包工头，人只管定方向。">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
 :root{
   --neon:#B2FC06;
   --grape:#8A3BEC;
-  --ink:#2B0A4E;
-  --gold:#B2FC06;
-  --ice:#B2FC06;
-  --bg:#8A3BEC;
-  --panel:rgba(20,4,40,.22);
-  --panel-2:rgba(20,4,40,.30);
-  --text:#FFFFFF;
-  --muted:rgba(255,255,255,.82);
-  --faint:rgba(255,255,255,.55);
-  --border:rgba(178,252,6,.45);
-  --border-soft:rgba(255,255,255,.18);
-  --shadow:0 32px 80px rgba(20,4,40,.35);
-  --radius-xl:36px; --radius-lg:28px; --radius-md:20px; --radius-sm:12px;
-  --space-xs:4px; --space-sm:8px; --space-md:16px; --space-lg:24px; --space-xl:32px; --space-2xl:48px; --space-3xl:64px;
+  --ink:#1A0B2E;
+  --bg:#FAFAF7;
+  --card:#FFFFFF;
+  --text:#1A0B2E;
+  --muted:#5C5470;
+  --faint:#8A8398;
+  --border:#E8E4F0;
+  --radius:16px;
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{
   background:var(--bg); color:var(--text);
-  font-family:'Fira Sans',-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
   line-height:1.7; overflow-x:hidden;
-  background-image:
-    radial-gradient(900px 480px at 12% -4%, rgba(178,252,6,.07), transparent 60%),
-    radial-gradient(800px 500px at 88% 6%, rgba(178,252,6,.08), transparent 60%);
 }
-h1,h2,h3,.mono{font-family:'Fira Code','Fira Sans',"PingFang SC","Microsoft YaHei",monospace; line-height:1.35}
-a{color:var(--ice); text-decoration:none}
-a:hover{text-decoration:underline}
-.wrap{max-width:1140px; margin:0 auto; padding:0 var(--space-lg)}
-::selection{background:var(--gold); color:#2B0A4E}
+a{color:var(--grape); text-decoration:none}
+.wrap{max-width:1080px; margin:0 auto; padding:0 24px}
 
-/* ---------- nav ---------- */
-.nav{position:sticky; top:0; z-index:50; backdrop-filter:blur(14px); background:rgba(20,4,40,.82); border-bottom:1px solid var(--border-soft)}
+/* nav */
+.nav{position:sticky; top:0; z-index:50; background:rgba(250,250,247,.92); backdrop-filter:blur(12px); border-bottom:1px solid var(--border)}
 .nav-inner{display:flex; align-items:center; justify-content:space-between; height:64px}
-.brand{display:flex; align-items:center; gap:10px; font-family:'Fira Code',monospace; font-weight:700; font-size:20px; color:var(--text)}
+.brand{display:flex; align-items:center; gap:10px; font-weight:800; font-size:20px; color:var(--text)}
 .brand:hover{text-decoration:none}
-.brand-mark{width:30px; height:30px; border-radius:9px; background:linear-gradient(135deg,var(--gold),#B2FC06); display:grid; place-items:center; color:#2B0A4E; font-size:15px; font-weight:700}
+.brand-mark{width:32px; height:32px; border-radius:10px; background:var(--grape); color:#fff; display:grid; place-items:center; font-size:16px; font-weight:800}
 .nav-links{display:flex; gap:28px; font-size:15px}
 .nav-links a{color:var(--muted)}
-.nav-links a:hover{color:var(--text); text-decoration:none}
-.btn{display:inline-flex; align-items:center; gap:8px; padding:12px 24px; border-radius:8px; font-weight:600; font-size:15px; cursor:pointer; border:none; transition:all 200ms ease; font-family:'Fira Sans',"PingFang SC",sans-serif}
-.btn-gold{background:var(--gold); color:#2B0A4E}
-.btn-gold:hover{opacity:.9; transform:translateY(-1px); text-decoration:none}
-.btn-ghost{background:transparent; color:var(--ice); border:2px solid var(--ice)}
-.btn-ghost:hover{background:rgba(178,252,6,.08); transform:translateY(-1px); text-decoration:none}
-@media(max-width:760px){.nav-links{display:none}}
+.nav-links a:hover{color:var(--text)}
+.btn{display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:13px 28px; border-radius:12px; font-weight:600; font-size:16px; cursor:pointer; border:none; transition:all .18s ease}
+.btn-primary{background:var(--grape); color:#fff}
+.btn-primary:hover{background:#7A2FD6; transform:translateY(-1px); text-decoration:none}
+.btn-outline{background:transparent; color:var(--grape); border:2px solid var(--grape)}
+.btn-outline:hover{background:rgba(138,59,236,.06); text-decoration:none}
+@media(max-width:720px){.nav-links{display:none}}
 
-/* ---------- hero ---------- */
-.hero{padding:96px 0 64px; display:grid; grid-template-columns:1.05fr .95fr; gap:var(--space-2xl); align-items:center}
-@media(max-width:960px){.hero{grid-template-columns:1fr; padding:64px 0 48px}}
-.eyebrow{display:inline-flex; align-items:center; gap:8px; font-family:'Fira Code',monospace; font-size:13px; letter-spacing:.14em; color:var(--ice); border:1px solid var(--border); border-radius:999px; padding:8px 16px; margin-bottom:var(--space-lg)}
-.eyebrow .dot{width:8px; height:8px; border-radius:50%; background:var(--ice); box-shadow:0 0 12px var(--ice)}
-.hero h1{font-size:clamp(34px,5vw,58px); font-weight:700; margin-bottom:var(--space-lg)}
-.hero h1 .hl{color:var(--gold)}
-.lead{font-size:18px; color:var(--muted); max-width:34em; margin-bottom:var(--space-xl)}
-.lead strong{color:var(--text)}
-.tool-row{display:flex; flex-wrap:wrap; gap:10px; margin-bottom:var(--space-xl)}
-.tool-chip{display:inline-flex; align-items:center; gap:8px; font-family:'Fira Code',monospace; font-size:13px; color:var(--text); background:var(--panel); border:1px solid var(--border-soft); border-radius:999px; padding:8px 14px}
-.tool-chip svg{width:14px; height:14px; stroke:var(--ice)}
-.hero-cta{display:flex; gap:14px; flex-wrap:wrap}
-.sim-note{margin-top:var(--space-lg); font-size:13px; color:var(--faint); display:flex; align-items:center; gap:8px}
-.sim-note svg{width:15px; height:15px; stroke:var(--gold); flex:none}
+/* hero */
+.hero{padding:96px 0 72px; text-align:center}
+.eyebrow{display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:600; letter-spacing:.08em; color:var(--grape); background:rgba(138,59,236,.08); border:1px solid rgba(138,59,236,.2); border-radius:999px; padding:8px 18px; margin-bottom:28px}
+.eyebrow .dot{width:8px; height:8px; border-radius:50%; background:var(--neon); border:2px solid var(--grape)}
+.hero h1{font-size:clamp(40px,7vw,72px); font-weight:800; line-height:1.2; letter-spacing:-.02em; margin-bottom:20px}
+.hero h1 .hl{color:var(--grape)}
+.hero .sub{font-size:clamp(17px,2.4vw,21px); color:var(--muted); max-width:620px; margin:0 auto 36px; line-height:1.8}
+.hero .sub strong{color:var(--text)}
+.hero-cta{display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-bottom:20px}
+.sim-note{font-size:13px; color:var(--faint)}
 
-/* live panel */
-.live{background:linear-gradient(180deg,var(--panel-2),var(--panel)); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow); overflow:hidden}
-.live-head{display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border-soft); font-family:'Fira Code',monospace; font-size:13px}
-.live-head .on{display:inline-flex; align-items:center; gap:8px; color:var(--ice)}
-.live-head .on i{width:8px; height:8px; border-radius:50%; background:var(--ice); box-shadow:0 0 10px var(--ice); animation:pulse 2s infinite}
-@keyframes pulse{50%{opacity:.4}}
-.live-body{padding:20px; display:flex; flex-direction:column; gap:12px}
-.task{background:rgba(20,4,40,.6); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:14px 16px}
-.task-top{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:14px}
-.task-top .t-name{font-weight:600}
-.pill{font-family:'Fira Code',monospace; font-size:11px; padding:4px 10px; border-radius:999px; letter-spacing:.04em; white-space:nowrap}
-.pill-ice{color:var(--ice); border:1px solid var(--border)}
-.pill-gold{color:var(--gold); border:1px solid rgba(178,252,6,.35)}
-.pill-dim{color:var(--muted); border:1px solid var(--border-soft)}
-.pipe{display:flex; align-items:center; gap:6px; font-family:'Fira Code',monospace; font-size:11px; color:var(--faint); flex-wrap:wrap}
-.pipe .done{color:var(--ice)}
-.pipe .now{color:var(--gold)}
-.task-meta{display:flex; justify-content:space-between; margin-top:10px; font-size:12px; color:var(--faint); font-family:'Fira Code',monospace}
-.live-foot{padding:14px 20px; border-top:1px solid var(--border-soft); font-size:12px; color:var(--faint); display:flex; align-items:center; gap:8px}
-.live-foot svg{width:14px; height:14px; stroke:var(--gold); flex:none}
-@media (prefers-reduced-motion: reduce){.live-head .on i{animation:none} html{scroll-behavior:auto}}
-
-/* ---------- sections ---------- */
-section.block{padding:88px 0}
-.sec-head{max-width:720px; margin-bottom:var(--space-2xl)}
-.sec-head .kicker{font-family:'Fira Code',monospace; font-size:13px; letter-spacing:.14em; color:var(--gold); margin-bottom:12px}
-.sec-head h2{font-size:clamp(26px,3.4vw,38px); margin-bottom:14px}
-.sec-head p{color:var(--muted); font-size:17px}
-
-/* steps */
-.steps{display:grid; grid-template-columns:repeat(5,1fr); gap:14px}
-@media(max-width:960px){.steps{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:560px){.steps{grid-template-columns:1fr}}
-.step{background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-md); padding:24px 20px; transition:all 200ms ease}
-.step:hover{border-color:var(--border); transform:translateY(-2px)}
-.step .num{font-family:'Fira Code',monospace; font-size:13px; color:var(--gold); border:1px solid rgba(178,252,6,.35); width:34px; height:34px; border-radius:10px; display:grid; place-items:center; margin-bottom:16px}
-.step h3{font-size:16px; margin-bottom:8px}
-.step p{font-size:14px; color:var(--muted)}
-
-/* policy compare */
-.compare{display:grid; grid-template-columns:1fr 1fr; gap:18px}
-@media(max-width:760px){.compare{grid-template-columns:1fr}}
-.cmp-card{background:var(--panel); border-radius:var(--radius-md); padding:32px 28px; border:1px solid var(--border-soft)}
-.cmp-card.auto{border-color:var(--border); background:linear-gradient(180deg,rgba(178,252,6,.06),var(--panel))}
-.cmp-card.manual{border-color:rgba(178,252,6,.25)}
-.cmp-card h3{font-size:19px; margin-bottom:6px; display:flex; align-items:center; gap:10px}
-.cmp-card h3 svg{width:20px; height:20px}
-.cmp-card.auto h3 svg{stroke:var(--ice)}
-.cmp-card.manual h3 svg{stroke:var(--gold)}
-.cmp-card .sub{font-size:14px; color:var(--muted); margin-bottom:20px}
-.cmp-card ul{list-style:none; display:flex; flex-direction:column; gap:12px; font-size:15px}
-.cmp-card li{display:flex; gap:10px; align-items:flex-start; color:var(--muted)}
-.cmp-card li svg{width:16px; height:16px; flex:none; margin-top:5px}
-.cmp-card.auto li svg{stroke:var(--ice)}
-.cmp-card.manual li svg{stroke:var(--gold)}
-.cmp-card li strong{color:var(--text); font-weight:600}
-.policy-link{margin-top:26px; text-align:center; font-size:15px; color:var(--muted)}
-.policy-link a{font-weight:600}
-
-/* integrate */
-.integ-grid{display:grid; grid-template-columns:1fr 1fr; gap:18px}
-@media(max-width:760px){.integ-grid{grid-template-columns:1fr}}
-.integ-card{background:#2B0A4E; border:1px solid var(--border-soft); border-radius:var(--radius-md); overflow:hidden}
-.integ-card .ic-head{padding:18px 22px; border-bottom:1px solid var(--border-soft); display:flex; align-items:center; justify-content:space-between}
-.integ-card .ic-head h3{font-size:16px}
-.integ-card .ic-head .tag{font-family:'Fira Code',monospace; font-size:11px; color:var(--ice); border:1px solid var(--border); padding:4px 10px; border-radius:999px}
-.codebox{padding:22px; font-family:'Fira Code',monospace; font-size:13px; line-height:1.8; color:#DDF9A6; overflow-x:auto; white-space:pre}
-.codebox .c{color:rgba(221,249,166,.5)}.codebox .k{color:var(--gold)}.codebox .s{color:var(--ice)}
-.copybar{padding:0 22px 22px; display:flex; gap:10px; align-items:center}
-.copybar .hint{font-size:13px; color:var(--faint)}
-.btn-sm{padding:9px 18px; font-size:13px}
-.copy-ok{font-size:13px; color:var(--ice); font-family:'Fira Code',monospace}
+/* how */
+.section{padding:72px 0}
+.sec-title{text-align:center; font-size:clamp(26px,4vw,36px); font-weight:800; margin-bottom:12px; letter-spacing:-.01em}
+.sec-sub{text-align:center; color:var(--muted); font-size:17px; max-width:600px; margin:0 auto 48px}
+.steps{display:grid; grid-template-columns:repeat(3,1fr); gap:20px}
+@media(max-width:760px){.steps{grid-template-columns:1fr}}
+.step{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:32px 28px; transition:all .18s ease}
+.step:hover{border-color:var(--grape); transform:translateY(-3px); box-shadow:0 12px 32px rgba(138,59,236,.1)}
+.step .num{display:inline-grid; place-items:center; width:40px; height:40px; border-radius:12px; background:var(--grape); color:#fff; font-weight:800; font-size:18px; margin-bottom:18px}
+.step h3{font-size:19px; font-weight:700; margin-bottom:10px}
+.step p{font-size:15px; color:var(--muted); line-height:1.75}
 
 /* talent */
-.talent-band{background:linear-gradient(180deg,var(--panel-2),var(--panel)); border:1px solid var(--border-soft); border-radius:var(--radius-lg); padding:var(--space-2xl); display:grid; grid-template-columns:1fr 1fr; gap:var(--space-xl); align-items:center}
-@media(max-width:760px){.talent-band{grid-template-columns:1fr}}
-.talent-num{font-family:'Fira Code',monospace; font-size:56px; font-weight:700; color:var(--gold)}
-.talent-band h3{font-size:22px; margin:8px 0 12px}
-.talent-band p{color:var(--muted); font-size:15px}
-.score-list{list-style:none; display:flex; flex-direction:column; gap:12px}
-.score-list li{background:rgba(20,4,40,.55); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:14px 18px; font-size:14px; display:flex; justify-content:space-between; gap:12px}
-.score-list .sv{font-family:'Fira Code',monospace; color:var(--ice); white-space:nowrap}
-.score-list .sv.down{color:var(--gold)}
+.talent{background:var(--ink); border-radius:24px; padding:56px 48px; display:grid; grid-template-columns:1fr 1fr; gap:40px; align-items:center; color:#fff}
+@media(max-width:760px){.talent{grid-template-columns:1fr; padding:40px 28px}}
+.talent .big{font-size:64px; font-weight:800; color:var(--neon); line-height:1; margin-bottom:12px}
+.talent h3{font-size:22px; font-weight:700; margin-bottom:12px}
+.talent p{color:rgba(255,255,255,.7); font-size:15px; line-height:1.75}
+.talent ul{list-style:none; display:flex; flex-direction:column; gap:12px}
+.talent li{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:16px 20px; font-size:14px; display:flex; justify-content:space-between; align-items:center}
+.talent li .tag{font-weight:700; color:var(--neon); white-space:nowrap; margin-left:12px}
 
-/* faq */
-.faq{max-width:800px}
-.faq-item{border-bottom:1px solid var(--border-soft); padding:22px 4px}
-.faq-item h3{font-size:17px; font-family:'Fira Sans',"PingFang SC",sans-serif; font-weight:600; margin-bottom:8px; display:flex; gap:12px; align-items:baseline}
-.faq-item h3 .q{font-family:'Fira Code',monospace; color:var(--gold); font-size:14px}
-.faq-item p{color:var(--muted); font-size:15px; padding-left:34px}
+/* templates */
+.tpl-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:20px}
+@media(max-width:760px){.tpl-grid{grid-template-columns:1fr}}
+.tpl{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:28px 24px; transition:all .18s ease}
+.tpl:hover{border-color:var(--grape); transform:translateY(-3px); box-shadow:0 12px 32px rgba(138,59,236,.1)}
+.tpl .icon{font-size:32px; margin-bottom:14px}
+.tpl h3{font-size:17px; font-weight:700; margin-bottom:8px}
+.tpl p{font-size:14px; color:var(--muted); line-height:1.7; margin-bottom:16px}
+.tpl .meta{font-size:13px; color:var(--faint)}
 
-/* cta + footer */
-.cta-band{text-align:center; padding:96px 0}
-.cta-band h2{font-size:clamp(28px,4vw,44px); margin-bottom:16px}
-.cta-band h2 .hl{color:var(--gold)}
-.cta-band p{color:var(--muted); margin-bottom:32px; font-size:17px}
-footer{border-top:1px solid var(--border-soft); padding:36px 0; font-size:13px; color:var(--faint)}
-.foot-inner{display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap; align-items:center}
+/* cta */
+.cta{background:var(--grape); border-radius:24px; padding:72px 48px; text-align:center; color:#fff}
+@media(max-width:760px){.cta{padding:48px 28px}}
+.cta h2{font-size:clamp(26px,4vw,38px); font-weight:800; margin-bottom:16px; line-height:1.4}
+.cta p{color:rgba(255,255,255,.8); font-size:17px; margin-bottom:32px; max-width:520px; margin-left:auto; margin-right:auto}
+.cta .btn-primary{background:#fff; color:var(--grape)}
+.cta .btn-primary:hover{background:var(--neon); color:var(--ink)}
+.cta .btn-outline{border-color:rgba(255,255,255,.5); color:#fff}
+.cta .btn-outline:hover{background:rgba(255,255,255,.1); border-color:#fff}
 
-/* ===== v0.4 retheme: 荧光绿 #B2FC06 × 绮菫紫 #8A3BEC ===== */
-body{background-image:
-    radial-gradient(900px 480px at 12% -4%, rgba(178,252,6,.16), transparent 60%),
-    radial-gradient(800px 500px at 88% 6%, rgba(43,10,78,.40), transparent 60%)}
-::selection{background:var(--neon); color:var(--ink)}
-.nav{background:rgba(138,59,236,.94); border-bottom:1px solid rgba(178,252,6,.30)}
-.brand-mark{background:var(--neon); color:var(--grape)}
-.btn-gold{color:var(--ink)}
-.btn-ghost{color:var(--neon); border-color:var(--neon)}
-.btn-ghost:hover{background:rgba(178,252,6,.12)}
-.task{background:rgba(20,4,40,.38)}
-.pill-gold{border-color:rgba(178,252,6,.45)}
-.cmp-card.auto{background:linear-gradient(180deg,rgba(178,252,6,.08),var(--panel))}
-.cmp-card.manual{border-color:rgba(178,252,6,.35)}
-/* 绿色横幅区块(运作方式/工头接入/FAQ) */
-.band-green{background:var(--neon); color:var(--ink)}
-.band-green .sec-head .kicker{color:var(--grape)}
-.band-green .sec-head h2{color:var(--grape)}
-.band-green .sec-head p{color:rgba(43,10,78,.72)}
-.band-green .step{background:#fff; border-color:rgba(138,59,236,.16)}
-.band-green .step:hover{border-color:var(--grape)}
-.band-green .step .num{color:var(--neon); background:var(--grape); border-color:var(--grape)}
-.band-green .step h3{color:var(--ink)}
-.band-green .step p{color:rgba(43,10,78,.70)}
-.band-green .integ-card{background:var(--ink); border-color:rgba(43,10,78,.30)}
-.band-green .integ-card .ic-head{border-bottom:1px solid rgba(178,252,6,.18)}
-.band-green .integ-card .ic-head h3{color:#fff}
-.band-green .integ-card .ic-head .tag{color:var(--neon); border-color:rgba(178,252,6,.45)}
-.band-green .codebox{color:#DDF9A6}
-.band-green .codebox .c{color:rgba(221,249,166,.50)}
-.band-green .codebox .k{color:var(--neon)}
-.band-green .codebox .s{color:#ffffff}
-.band-green .copybar .hint{color:rgba(43,10,78,.60)}
-.band-green .btn-ghost{color:var(--grape); border-color:var(--grape)}
-.band-green .btn-ghost:hover{background:rgba(138,59,236,.10)}
-.band-green .faq-item{border-color:rgba(43,10,78,.16)}
-.band-green .faq-item h3{color:var(--ink)}
-.band-green .faq-item h3 .q{color:var(--grape)}
-.band-green .faq-item p{color:rgba(43,10,78,.72)}
-/* 紫色区块上的绿色执行者卡片 */
-.talent-band{background:var(--neon); border-color:var(--neon)}
-.talent-band h3{color:var(--ink)}
-.talent-band p{color:rgba(43,10,78,.72)}
-.talent-num{color:var(--grape)}
-.score-list li{background:#ffffff; border-color:rgba(138,59,236,.15); color:var(--ink)}
-.score-list .sv{color:var(--grape)}
-.score-list .sv.down{color:#C22E2E}
-footer{background:var(--ink); border-top:1px solid rgba(178,252,6,.25); color:rgba(255,255,255,.62)}
-@media(max-width:640px){.nav .pill{display:none}}@media(max-width:640px){.codebox{white-space:pre-wrap; word-break:break-all}}</style>
+/* footer */
+footer{border-top:1px solid var(--border); padding:36px 0; margin-top:72px}
+.foot-inner{display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; font-size:13px; color:var(--faint)}
+.foot-inner .fl{display:flex; align-items:center; gap:8px; font-weight:700; color:var(--text)}
+</style>
 </head>
 <body>
 
@@ -228,191 +109,104 @@ footer{background:var(--ink); border-top:1px solid rgba(178,252,6,.25); color:rg
   <div class="wrap nav-inner">
     <a class="brand" href="#"><span class="brand-mark">H</span>HHBA</a>
     <div class="nav-links">
-      <a href="#how">运作方式</a>
-      <a href="#policy">自动审批</a>
-      <a href="#integrate">工头接入</a>
-      <a href="#talent">执行者</a>
-      <a href="#faq">FAQ</a>
+      <a href="#how">怎么运作</a>
+      <a href="#templates">任务模板</a>
+      <a href="docs.html">开发者文档</a>
     </div>
-    <a class="btn btn-gold" href="#integrate">连接 AI 工头</a>
+    <a class="btn btn-primary" href="tasks.html" style="padding:10px 22px; font-size:15px">发一单试试</a>
   </div>
 </nav>
 
 <header class="hero wrap">
-  <div>
-    <span class="eyebrow"><span class="dot"></span>积分模拟阶段 · 已上线</span>
-    <h1>AI <span class="hl">雇佣</span>人类</h1>
-    <p class="lead">你的 AI 写代码、做方案，<strong>卡住的地方，自动雇个人帮它干完</strong>。你定预算、定规则，它在规则内<strong>拆单、发单、管人、验收、结算</strong>——你只管定方向，剩下的它搞定。</p>
-    <div class="tool-row">
-      <span class="tool-chip"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>Codex Cloud</span>
-      <span class="tool-chip"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>Cursor</span>
-      <span class="tool-chip"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>OpenClaw</span>
-      <span class="tool-chip"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>任何 AI 工具</span>
-    </div>
-    <div class="hero-cta">
-      <a class="btn btn-gold" href="#integrate">连接你的 AI 工头</a>
-      <a class="btn btn-ghost" href="#how">看看怎么运作</a>
-    </div>
-    <p class="sim-note"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l2.5 2.5"/></svg>当前为积分模拟阶段：全流程记账，但不涉及真实资金结算。</p>
+  <span class="eyebrow"><span class="dot"></span>积分模拟阶段 · 已上线</span>
+  <h1>AI <span class="hl">雇佣</span>人类</h1>
+  <p class="sub">你的 AI 写代码、做方案，<strong>卡住的地方，自动雇个人帮它干完</strong>。<br>你定预算、定规则，AI 在规则内拆单、发单、验收、结算。</p>
+  <div class="hero-cta">
+    <a class="btn btn-primary" href="tasks.html">发一单试试</a>
+    <a class="btn btn-outline" href="#how">看看怎么运作</a>
   </div>
-  <div class="live" aria-label="任务流水线实时示意">
-    <div class="live-head"><span>任务流水线 · LIVE</span><span class="on"><i></i>运行中</span></div>
-    <div class="live-body">
-      <div class="task">
-        <div class="task-top"><span class="t-name">落地页安卓真机走查 · 10 步清单</span><span class="pill pill-ice">验收通过</span></div>
-        <div class="pipe"><span class="done">拆单</span>→<span class="done">策略自动审批</span>→<span class="done">发单</span>→<span class="done">交付</span>→<span class="done">验收</span>→<span class="now">积分结算</span></div>
-        <div class="task-meta"><span>工头 · codex-cloud</span><span>8 分钟 · 10 张截图回传</span></div>
-      </div>
-      <div class="task">
-        <div class="task-top"><span class="t-name">小程序支付链路验证（沙箱）</span><span class="pill pill-gold">人工确认中</span></div>
-        <div class="pipe"><span class="done">拆单</span>→<span class="now">超预算 · 待确认</span>→<span>发单</span>→<span>交付</span>→<span>验收</span>→<span>结算</span></div>
-        <div class="task-meta"><span>工头 · cursor</span><span>超策略上限 1 次点击</span></div>
-      </div>
-      <div class="task">
-        <div class="task-top"><span class="t-name">H5 表单兼容性测试 · 真机录屏</span><span class="pill pill-dim">交付中</span></div>
-        <div class="pipe"><span class="done">拆单</span>→<span class="done">策略自动审批</span>→<span class="done">发单</span>→<span class="now">执行者交付中</span>→<span>验收</span>→<span>结算</span></div>
-        <div class="task-meta"><span>工头 · openclaw</span><span>执行者可靠分 106</span></div>
-      </div>
-    </div>
-    <div class="live-foot"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>示意数据 · 规则内任务 0 次点击自动流转</div>
-  </div>
+  <p class="sim-note">当前为积分模拟阶段，全流程记账，不涉及真实资金。</p>
 </header>
 
-<section class="block band-green"><div class="wrap" id="how">
-  <div class="sec-head">
-    <div class="kicker">运作方式</div>
-    <h2>你当老板，AI 当包工头</h2>
-    <p>审批从"每单一确认"变成"一次定规则"——规则之内，AI 自己说了算。</p>
-  </div>
+<section class="section wrap" id="how">
+  <h2 class="sec-title">你当老板，AI 当包工头</h2>
+  <p class="sec-sub">一次定好规则，之后就不用管了。规则之内的事，AI 自己说了算。</p>
   <div class="steps">
-    <div class="step"><div class="num">01</div><h3>你定规则</h3><p>单任务预算上限、日 / 月封顶、允许的任务类型、执行者可靠分门槛，一次设好。</p></div>
-    <div class="step"><div class="num">02</div><h3>AI 自动发单</h3><p>命中策略的任务自动审批、直接发布，无需你逐单点确认。</p></div>
-    <div class="step"><div class="num">03</div><h3>人来交付</h3><p>真实执行者按可靠分匹配接单，进度由工头盯着。</p></div>
-    <div class="step"><div class="num">04</div><h3>AI 照标准验收</h3><p>任务自带验收标准，验收不通过打回重做，不结算。</p></div>
-    <div class="step"><div class="num">05</div><h3>积分结算</h3><p>验收通过后积分自动结算，全程记账可查。当前为模拟阶段。</p></div>
+    <div class="step">
+      <div class="num">1</div>
+      <h3>定规则</h3>
+      <p>单任务预算上限、日月封顶、允许的任务类型、执行者分数门槛，一次设好。</p>
+    </div>
+    <div class="step">
+      <div class="num">2</div>
+      <h3>AI 自动发单</h3>
+      <p>你的 AI 在规则内自动拆单、发单、盯进度。超预算或没命中的才来找你确认。</p>
+    </div>
+    <div class="step">
+      <div class="num">3</div>
+      <h3>验收结算</h3>
+      <p>真人交付，AI 按标准验收。通过就结算积分，打回就重做，全程记账可查。</p>
+    </div>
   </div>
-</div>
 </section>
 
-<section class="block wrap" id="policy">
-  <div class="sec-head">
-    <div class="kicker">策略自动审批</div>
-    <h2>规则内 0 次点击，例外才找你</h2>
-    <p>你预先设好预算和规则，AI 在规则内自己发单；只有超预算、或没命中任何策略的任务，才需要你人工确认一次。</p>
-  </div>
-  <div class="compare">
-    <div class="cmp-card auto">
-      <h3><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>规则内 · 自动审批</h3>
-      <p class="sub">命中启用策略的任务，直接发布，全程无需人工介入。</p>
-      <ul>
-        <li><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg><span><strong>单任务预算上限</strong>——每单最多花多少，你说了算</span></li>
-        <li><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg><span><strong>日 / 月预算封顶</strong>——花超了自动停，不会失控</span></li>
-        <li><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg><span><strong>允许的任务类型</strong>——哪些活能发、哪些不能，白名单管理</span></li>
-        <li><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg><span><strong>执行者可靠分门槛</strong>——只派给多少分以上的人</span></li>
-      </ul>
-    </div>
-    <div class="cmp-card manual">
-      <h3><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l2.5 2.5"/></svg>例外 · 人工确认</h3>
-      <p class="sub">只有这两种情况会来到你面前，其他时间你不用管。</p>
-      <ul>
-        <li><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg><span><strong>超预算</strong>——任务预算超过策略上限，需你点一次确认</span></li>
-        <li><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg><span><strong>无策略命中</strong>——新类型任务没有对应规则，需你先看一眼</span></li>
-      </ul>
-    </div>
-  </div>
-  <p class="policy-link">超预算的任务会在这里等你确认 —— <a href="approve.html">前往人工审批页 →</a></p>
-</section>
-
-<section class="block band-green"><div class="wrap" id="integrate">
-  <div class="sec-head">
-    <div class="kicker">工头接入 · 工具中立</div>
-    <h2>不绑定任何 AI 工具</h2>
-    <p>只要能调 HTTP 接口或 MCP，你的 AI 就能当包工头。Codex Cloud、Cursor、OpenClaw，哪个顺手用哪个。</p>
-  </div>
-  <div class="integ-grid">
-    <div class="integ-card">
-      <div class="ic-head"><h3>HTTP API</h3><span class="tag">通用</span></div>
-      <div class="codebox"><span class="c"># 工头发起一单委托（草案）</span>
-<span class="k">curl</span> -X <span class="k">POST</span> $HHBA/api/human-capability-requests/draft \
-  -H <span class="s">'Content-Type: application/json'</span> \
-  -d <span class="s">'{
-    "goal": "把访谈录音整理成文字稿",
-    "foreman": { "tool": "codex-cloud" },
-    "budget": 200,
-    "acceptanceCriteria": ["逐字稿完整", "说话人区分标注"]
-  }'</span>
-<span class="c"># → 返回 autoApproval 预检：命中策略则直接发布</span></div>
-      <div class="copybar"><span class="hint">把这段交给你的 AI，它就知道怎么发单。</span></div>
-    </div>
-    <div class="integ-card">
-      <div class="ic-head"><h3>MCP 接入</h3><span class="tag">Agent 原生</span></div>
-      <div class="codebox"><span class="c"># 一条命令，把 HHBA 装进你的 AI 工具</span>
-<span class="k">codex</span> mcp add hhba -- node mcp-server.mjs
-<span class="c"># Cursor / OpenClaw 同理配置 MCP server 即可
-# 工具：draft → get → get_result</span></div>
-      <div class="copybar">
-        <button class="btn btn-ghost btn-sm" id="copy-mcp" type="button">复制命令</button>
-        <span class="copy-ok" id="copy-ok"></span>
-      </div>
-    </div>
-  </div>
-</div>
-</section>
-
-<section class="block wrap" id="talent">
-  <div class="talent-band">
+<section class="section wrap">
+  <div class="talent">
     <div>
-      <div class="talent-num">129</div>
+      <div class="big">129</div>
       <h3>位真实执行者，已经在场</h3>
-      <p>不是简历库，是真实注册、可接单的人。平台用可靠分给每个人画像：交付越稳，越先被派单——好人自然浮上来，不用你一个个面试。</p>
+      <p>不是简历库，是真实注册、可接单的人。平台用可靠分给每个人画像：交付越稳，越先被派单。</p>
     </div>
-    <ul class="score-list">
-      <li><span>验收通过，准时交付</span><span class="sv">+2 分</span></li>
-      <li><span>验收打回，返工重做</span><span class="sv down">−10 分</span></li>
-      <li><span>工头可设门槛：只派给 90 分以上</span><span class="sv">策略控制</span></li>
+    <ul>
+      <li><span>按时交付，验收通过</span><span class="tag">+2 分</span></li>
+      <li><span>验收打回，返工重做</span><span class="tag" style="color:#FF6B6B">−10 分</span></li>
+      <li><span>复合信誉分：公开评价 + 私有反馈 + 履约数据</span><span class="tag">v0.8</span></li>
     </ul>
   </div>
 </section>
 
-<section class="block band-green"><div class="wrap" id="faq">
-  <div class="sec-head">
-    <div class="kicker">FAQ</div>
-    <h2>你可能想问</h2>
+<section class="section wrap" id="templates">
+  <h2 class="sec-title">从模板发单，一分钟搞定</h2>
+  <p class="sec-sub">首发三类真机验证任务，选模板、填目标、定预算，就能发。</p>
+  <div class="tpl-grid">
+    <div class="tpl">
+      <div class="icon">📱</div>
+      <h3>H5 / 落地页真机走查</h3>
+      <p>在真实手机上打开指定页面，按检查清单走查，截图回传。</p>
+      <div class="meta">建议预算 20–80 积分</div>
+    </div>
+    <div class="tpl">
+      <div class="icon">🧪</div>
+      <h3>小程序 / App 冒烟测试</h3>
+      <p>按用例在真机上跑核心流程，记录问题并截图留证。</p>
+      <div class="meta">建议预算 30–120 积分</div>
+    </div>
+    <div class="tpl">
+      <div class="icon">💳</div>
+      <h3>沙箱表单 / 支付链路验证</h3>
+      <p>在沙箱环境走完表单填写到支付全链路，截图留证。</p>
+      <div class="meta">建议预算 40–150 积分</div>
+    </div>
   </div>
-  <div class="faq">
-    <div class="faq-item"><h3><span class="q">Q1</span>现在涉及真实的钱吗？</h3><p>不涉及。当前为积分模拟阶段：预算、冻结、结算全流程记账，但结算的是积分。真实资金结算上线前会明确公告，不会悄悄扣你的钱。</p></div>
-    <div class="faq-item"><h3><span class="q">Q2</span>哪些 AI 工具能当工头？</h3><p>任何能调用 HTTP 接口或 MCP 的 AI 工具：Codex Cloud、Cursor、OpenClaw 等。HHBA 是工具中立的包工头协议，不绑定单一 AI。</p></div>
-    <div class="faq-item"><h3><span class="q">Q3</span>我还需要逐单审批吗？</h3><p>不需要。一次设好预算和策略，规则内自动审批、自动发布；只有超预算或无策略命中的任务，才需要你人工确认一次。</p></div>
-    <div class="faq-item"><h3><span class="q">Q4</span>交付质量谁把关？</h3><p>每单任务自带验收标准，AI 工头对照标准验收：通过才结算，不通过打回重做。验收结果还会记入执行者的可靠分。</p></div>
-    <div class="faq-item"><h3><span class="q">Q5</span>和传统外包平台有什么区别？</h3><p>传统平台你当 HR，一个个挑人、盯进度、扯皮。在 HHBA 你当老板定规则，AI 当包工头替你拆单、派单、盯人、验收——你只管定方向。</p></div>
-  </div>
-</div>
 </section>
 
-<section class="cta-band wrap">
-  <h2>凌晨 2 点，Codex 改完落地页<br><span class="hl">自己雇了个人用真机点了一遍</span></h2>
-  <p>8 分钟后截图回来了。你也可以：定一条策略，发第一单真机验证，看看包工头是怎么替你干活的。</p>
-  <div class="hero-cta" style="justify-content:center">
-    <a class="btn btn-gold" href="#integrate">给我的 AI 装上包工头</a>
-    <a class="btn btn-ghost" href="tasks.html">发一单试试</a>
+<section class="section wrap">
+  <div class="cta">
+    <h2>让你的 AI<br>第一次自己雇个人干活</h2>
+    <p>定一条策略，发一单真机验证，看看包工头是怎么替你干活的。</p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="tasks.html">发一单试试</a>
+      <a class="btn btn-outline" href="docs.html">查看开发者文档</a>
+    </div>
   </div>
 </section>
 
 <footer>
   <div class="wrap foot-inner">
-    <span><span class="mono" style="font-weight:700">HHBA</span> · Human Capability Layer for AI Agents</span>
+    <span class="fl"><span class="brand-mark" style="width:24px;height:24px;font-size:12px;border-radius:7px">H</span>HHBA · Human Capability Layer for AI Agents</span>
     <span>积分模拟阶段 · 不涉及真实资金结算</span>
   </div>
 </footer>
 
-<script>
-document.getElementById('copy-mcp').addEventListener('click', async () => {
-  const cmd = 'codex mcp add hhba -- node mcp-server.mjs';
-  const ok = document.getElementById('copy-ok');
-  try { await navigator.clipboard.writeText(cmd); ok.textContent = '已复制'; }
-  catch { ok.textContent = '请手动复制：' + cmd; }
-  setTimeout(() => ok.textContent = '', 3000);
-});
-</script>
 </body>
 </html>
