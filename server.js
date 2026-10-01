@@ -353,6 +353,127 @@ function adjustReliability(id, delta) {
   return executor.reliabilityScore;
 }
 
+// ---- v0.8 复合信誉分:公开评价 30% + 私有反馈 50% + 履约数据 20%(借鉴 Upwork JSS) ----
+// 反馈记录:{id, taskId, executorId, bossId, publicScore, publicComment, privateScore, privateNote, taskAmount, createdAt}
+// 私有反馈不对执行者公开,仅用于复合分计算;公开评价对执行者可见
+const feedbackFile = path.join(dataDirectory, 'feedback.json');
+const feedbacks = [];
+function loadFeedbacks() {
+  try {
+    const saved = JSON.parse(readFileSync(feedbackFile, 'utf8'));
+    for (const item of saved.feedbacks || []) feedbacks.push(item);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+function persistFeedbacks() {
+  mkdirSync(dataDirectory, { recursive: true });
+  const temporaryFile = `${feedbackFile}.${process.pid}.tmp`;
+  writeFileSync(temporaryFile, JSON.stringify({ version: 1, feedbacks }, null, 2));
+  renameSync(temporaryFile, feedbackFile);
+}
+const DAY_MS = 24 * 3600 * 1000;
+// 多时间窗口权重:近30天 60%,30-90天 30%,90天以上 10%
+function timeWindowWeight(createdAt) {
+  const age = Date.now() - new Date(createdAt).getTime();
+  if (age <= 30 * DAY_MS) return 0.6;
+  if (age <= 90 * DAY_MS) return 0.3;
+  return 0.1;
+}
+// 1-5星映射到 0-100分
+function starsToScore(stars) { return ((Number(stars) - 1) / 4) * 100; }
+// 金额加权平均:权重 = 任务积分 × 时间窗口权重(大额任务反馈权重更高)
+function weightedScore(entries) {
+  let weightedSum = 0, weightSum = 0;
+  for (const entry of entries) {
+    const amountWeight = entry.amount > 0 ? entry.amount : 1;
+    const weight = amountWeight * timeWindowWeight(entry.createdAt);
+    weightedSum += starsToScore(entry.stars) * weight;
+    weightSum += weight;
+  }
+  return weightSum > 0 ? weightedSum / weightSum : null;
+}
+// 恶意发单方剔除:某老板给所有执行者的评分均值<2且方差小(>=3条才判定),其反馈不计入
+function findMaliciousBosses() {
+  const scoresByBoss = new Map();
+  for (const fb of feedbacks) {
+    for (const score of [fb.publicScore, fb.privateScore]) {
+      if (score == null) continue;
+      if (!scoresByBoss.has(fb.bossId)) scoresByBoss.set(fb.bossId, []);
+      scoresByBoss.get(fb.bossId).push(Number(score));
+    }
+  }
+  const malicious = new Set();
+  for (const [bossId, scores] of scoresByBoss) {
+    if (scores.length < 3) continue;
+    const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+    const variance = scores.reduce((a, b) => a + (b - mean) ** 2, 0) / scores.length;
+    if (mean < 2 && variance < 0.5) malicious.add(bossId);
+  }
+  return malicious;
+}
+// 履约数据分(0-100):完成率 50% + 准时交付率 30% + (1-拒收率) 20%
+function computeFulfillmentScore(executorId) {
+  const executor = getExecutor(executorId);
+  const completed = executor.completedTasks || 0;
+  const rejected = executor.rejectedTasks || 0;
+  const total = completed + rejected;
+  const completionRate = total > 0 ? completed / total : 1;
+  const rejectionRate = total > 0 ? rejected / total : 0;
+  let onTime = 0, withDeadline = 0;
+  for (const item of requests.values()) {
+    if (item.assignment?.handlerId !== executorId) continue;
+    if (!['VERIFIED', 'DELIVERED'].includes(item.status)) continue;
+    if (!item.deadline || !item.deliveredAt) continue;
+    withDeadline += 1;
+    if (new Date(item.deliveredAt) <= new Date(item.deadline)) onTime += 1;
+  }
+  const onTimeRate = withDeadline > 0 ? onTime / withDeadline : completionRate;
+  const score = 100 * (0.5 * completionRate + 0.3 * onTimeRate + 0.2 * (1 - rejectionRate));
+  return { score, completed, rejected, completionRate, onTimeRate, rejectionRate, withDeadline };
+}
+// 复合信誉分:公开评价均值×30% + 私有反馈均值×50% + 履约数据分×20%
+// 某维度无数据时权重按比例分给有数据的维度;无任何反馈时保持原有分数不变
+function computeReputation(executorId) {
+  const maliciousBosses = findMaliciousBosses();
+  const usable = feedbacks.filter((fb) => fb.executorId === executorId && !maliciousBosses.has(fb.bossId));
+  const excludedCount = feedbacks.filter((fb) => fb.executorId === executorId && maliciousBosses.has(fb.bossId)).length;
+  const publicEntries = usable.filter((fb) => fb.publicScore != null)
+    .map((fb) => ({ stars: fb.publicScore, amount: fb.taskAmount, createdAt: fb.createdAt }));
+  const privateEntries = usable.filter((fb) => fb.privateScore != null)
+    .map((fb) => ({ stars: fb.privateScore, amount: fb.taskAmount, createdAt: fb.createdAt }));
+  const publicAvg = weightedScore(publicEntries);
+  const privateAvg = weightedScore(privateEntries);
+  const fulfillment = computeFulfillmentScore(executorId);
+  const parts = [];
+  if (publicAvg != null) parts.push({ avg: publicAvg, weight: 0.3 });
+  if (privateAvg != null) parts.push({ avg: privateAvg, weight: 0.5 });
+  parts.push({ avg: fulfillment.score, weight: 0.2 });
+  const totalWeight = parts.reduce((sum, part) => sum + part.weight, 0);
+  const composite = parts.reduce((sum, part) => sum + part.avg * (part.weight / totalWeight), 0);
+  return {
+    executorId,
+    composite,
+    hasFeedback: publicEntries.length + privateEntries.length > 0,
+    public: { average: publicAvg, count: publicEntries.length, weight: 0.3 },
+    private: { average: privateAvg, count: privateEntries.length, weight: 0.5 },
+    fulfillment: { ...fulfillment, weight: 0.2 },
+    excludedFeedbacks: excludedCount,
+    maliciousBossCount: [...maliciousBosses].filter((bossId) =>
+      feedbacks.some((fb) => fb.executorId === executorId && fb.bossId === bossId)).length,
+  };
+}
+// 同步复合分到 reliabilityScore:有反馈时用复合分覆盖,无反馈时保留原有增量逻辑
+function syncCompositeScore(executorId) {
+  const reputation = computeReputation(executorId);
+  if (!reputation.hasFeedback) return reputation;
+  const executor = getExecutor(executorId);
+  executor.reliabilityScore = Math.min(120, Math.max(0, Math.round(reputation.composite)));
+  executor.updatedAt = new Date().toISOString();
+  persistExecutors();
+  return reputation;
+}
+
 // ---- 工头通用化:不再绑定 OpenClaw,任何 AI 工具都能当工头 ----
 function normalizeForeman(input) {
   const raw = input.foreman;
@@ -550,6 +671,7 @@ function checkAutoApprove() {
       const executor = getExecutor(handlerId);
       executor.completedTasks += 1;
       adjustReliability(handlerId, 2);
+      syncCompositeScore(handlerId); // v0.8:有反馈时用复合信誉分覆盖增量分
     }
     autoApproved++;
   }
@@ -568,6 +690,7 @@ loadRequests();
 loadPolicies();
 loadLedger();
 loadExecutors();
+loadFeedbacks();
 loadUsers();
 loadSmtp();
 loadSms();
@@ -981,6 +1104,8 @@ http.createServer(async (request, response) => {
           const executor = getExecutor(handlerId);
           executor.completedTasks += 1;
           executorScore = adjustReliability(handlerId, 2);
+          syncCompositeScore(handlerId); // v0.8:有反馈时用复合信誉分覆盖增量分
+          executorScore = getExecutor(handlerId).reliabilityScore;
         }
         persist();
         return json(response, 200, { requestId: item.id, status: item.status, settledAmount: settled, executorScore });
@@ -998,10 +1123,108 @@ http.createServer(async (request, response) => {
         const executor = getExecutor(handlerId);
         executor.rejectedTasks += 1;
         executorScore = adjustReliability(handlerId, -10);
+        syncCompositeScore(handlerId); // v0.8:有反馈时用复合信誉分覆盖增量分
+        executorScore = getExecutor(handlerId).reliabilityScore;
       }
       persist();
       return json(response, 200, { requestId: item.id, status: item.status, refundedAmount: refunded, executorScore });
     } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  // v0.8:任务反馈(需 internal key,即工头/老板调用):公开评价 + 私有反馈一次提交
+  // 私有反馈不对执行者公开,仅用于复合信誉分计算
+  const feedbackMatch = request.url.match(/^\/api\/tasks\/([^/]+)\/feedback$/);
+  if (feedbackMatch && request.method === 'POST') {
+    if (!hasInternalAccess(request)) return json(response, 403, { error: 'HHBA internal access is required' });
+    const item = find(feedbackMatch[1], response);
+    if (!item) return;
+    try {
+      const body = await readBody(request);
+      if (item.status !== 'VERIFIED') return json(response, 409, { error: `只能对已验收的任务提交反馈(当前状态:${item.status})` });
+      const handlerId = item.assignment?.handlerId || null;
+      if (!handlerId) return json(response, 409, { error: '该任务没有执行者,无法提交反馈' });
+      if (feedbacks.some((fb) => fb.taskId === item.id)) return json(response, 409, { error: '该任务已提交过反馈' });
+      const pickScore = (value) => {
+        if (value === null || value === undefined || value === '') return null;
+        const num = Number(value);
+        if (!Number.isInteger(num) || num < 1 || num > 5) return 'invalid';
+        return num;
+      };
+      const publicScore = pickScore(body.publicScore ?? body.public_score);
+      const privateScore = pickScore(body.privateScore ?? body.private_score);
+      if (publicScore === 'invalid' || privateScore === 'invalid') {
+        return json(response, 400, { error: '评分必须是 1-5 的整数' });
+      }
+      if (publicScore == null && privateScore == null) {
+        return json(response, 400, { error: '公开评价与私有反馈至少提交一项' });
+      }
+      const bossId = String(body.bossId || body.boss_id || 'boss').trim() || 'boss';
+      const feedback = {
+        id: `fb_${randomUUID().slice(0, 8)}`,
+        taskId: item.id,
+        executorId: handlerId,
+        bossId,
+        publicScore,
+        publicComment: String(body.publicComment ?? body.public_comment ?? '').trim() || null,
+        privateScore,
+        privateNote: String(body.privateNote ?? body.private_note ?? '').trim() || null,
+        taskAmount: budgetAmountOf(item) ?? 0,
+        createdAt: new Date().toISOString(),
+      };
+      feedbacks.push(feedback);
+      persistFeedbacks();
+      audit(item, 'FEEDBACK_SUBMITTED', { actor: bossId, hasPublic: publicScore != null, hasPrivate: privateScore != null });
+      persist();
+      const reputation = syncCompositeScore(handlerId);
+      return json(response, 201, {
+        feedbackId: feedback.id,
+        taskId: item.id,
+        executorId: handlerId,
+        reliabilityScore: getExecutor(handlerId).reliabilityScore,
+        composite: Math.round(reputation.composite * 10) / 10,
+      });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+
+  // v0.8:执行者信誉分详情(公开):复合分 = 公开评价均值×30% + 私有反馈均值×50% + 履约数据分×20%
+  // 私有反馈仅展示聚合均值,不暴露单条私有评分
+  const reputationMatch = request.url.match(/^\/api\/executors\/([^/]+)\/reputation$/);
+  if (reputationMatch && request.method === 'GET') {
+    const executorId = decodeURIComponent(reputationMatch[1]).trim();
+    const executor = executors.get(executorId);
+    if (!executor) return json(response, 404, { error: 'executor not found' });
+    const reputation = computeReputation(executorId);
+    const round1 = (n) => n == null ? null : Math.round(n * 10) / 10;
+    const maliciousBosses = findMaliciousBosses();
+    const publicFeedbacks = feedbacks
+      .filter((fb) => fb.executorId === executorId && !maliciousBosses.has(fb.bossId) && fb.publicScore != null)
+      .map((fb) => ({
+        taskId: fb.taskId, publicScore: fb.publicScore, publicComment: fb.publicComment,
+        taskAmount: fb.taskAmount, createdAt: fb.createdAt,
+      }));
+    return json(response, 200, {
+      executorId,
+      displayName: executor.displayName,
+      reliabilityScore: executor.reliabilityScore ?? 100,
+      composite: {
+        score: round1(reputation.composite),
+        hasFeedback: reputation.hasFeedback,
+        public: { average: round1(reputation.public.average), count: reputation.public.count, weight: 0.3 },
+        private: { average: round1(reputation.private.average), count: reputation.private.count, weight: 0.5 },
+        fulfillment: {
+          score: round1(reputation.fulfillment.score), weight: 0.2,
+          completedTasks: reputation.fulfillment.completed,
+          rejectedTasks: reputation.fulfillment.rejected,
+          completionRate: round1(reputation.fulfillment.completionRate * 100),
+          onTimeRate: round1(reputation.fulfillment.onTimeRate * 100),
+          rejectionRate: round1(reputation.fulfillment.rejectionRate * 100),
+        },
+        excludedFeedbacks: reputation.excludedFeedbacks,
+        maliciousBossCount: reputation.maliciousBossCount,
+      },
+      publicFeedbacks, // 公开评价对执行者可见;私有反馈不返回单条
+      updatedAt: executor.updatedAt,
+    });
   }
 
   // 包工头模式:策略管理(需 internal key 或 ops session)
