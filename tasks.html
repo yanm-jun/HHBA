@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HHBA · 执行者接单</title>
+<meta name="description" content="HHBA 执行者接单页：看任务、认领、交付。积分模拟阶段，不涉及真实资金。">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+:root{
+  --neon:#B2FC06; --grape:#8A3BEC; --ink:#2B0A4E;
+  --gold:#8A3BEC; --ice:#8A3BEC;
+  --bg:#B2FC06; --panel:#FFFFFF; --panel-2:#F0FFC4;
+  --text:#2B0A4E; --muted:rgba(43,10,78,.72); --faint:rgba(43,10,78,.50);
+  --border:rgba(138,59,236,.40); --border-soft:rgba(43,10,78,.14);
+  --err:#C22E2E;
+  --radius-lg:20px; --radius-md:14px; --radius-sm:9px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg); color:var(--text); font-family:'Fira Sans',-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; line-height:1.65;
+  background-image:radial-gradient(900px 480px at 12% -4%, rgba(178,252,6,.06), transparent 60%),radial-gradient(800px 500px at 88% 6%, rgba(178,252,6,.07), transparent 60%);}
+h1,h2,h3,.mono{font-family:'Fira Code','Fira Sans',"PingFang SC",monospace}
+.wrap{max-width:960px; margin:0 auto; padding:0 24px}
+::selection{background:var(--gold); color:#2B0A4E}
+button,input,textarea{font:inherit} button{cursor:pointer}
+.nav{position:sticky; top:0; z-index:50; backdrop-filter:blur(14px); background:rgba(20,4,40,.86); border-bottom:1px solid var(--border-soft)}
+.nav-inner{display:flex; align-items:center; justify-content:space-between; height:62px}
+.brand{display:flex; align-items:center; gap:10px; font-family:'Fira Code',monospace; font-weight:700; font-size:18px; color:var(--text); text-decoration:none}
+.brand-mark{width:30px; height:30px; border-radius:9px; background:linear-gradient(135deg,var(--gold),#B2FC06); display:grid; place-items:center; color:#2B0A4E; font-size:15px; font-weight:700}
+.nav-right{display:flex; align-items:center; gap:12px; font-size:13px; color:var(--muted)}
+.pill{font-family:'Fira Code',monospace; font-size:11px; padding:5px 12px; border-radius:999px; white-space:nowrap; letter-spacing:.04em}
+.pill-gold{color:var(--gold); border:1px solid rgba(178,252,6,.4)}
+.pill-ice{color:var(--ice); border:1px solid var(--border)}
+.pill-dim{color:var(--muted); border:1px solid var(--border-soft)}
+.pill-err{color:var(--err); border:1px solid rgba(255,122,110,.4)}
+.linklike{background:none; border:none; color:var(--ice); font-size:13px; padding:6px 4px}
+.login{max-width:520px; margin:80px auto 0; background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-lg); padding:36px 32px}
+.login .kicker{font-family:'Fira Code',monospace; font-size:12px; letter-spacing:.14em; color:var(--ice)}
+.login h1{font-size:30px; margin:10px 0 8px}
+.login p.hint{color:var(--muted); font-size:14px; margin-bottom:8px}
+label.f{display:block; font-size:12px; font-weight:600; margin:16px 0 6px; color:var(--muted)}
+input[type=text],input[type=password],textarea{width:100%; background:#2B0A4E; border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:11px 13px; color:var(--text)}
+input:focus,textarea:focus{outline:none; border-color:var(--ice)}
+textarea{resize:vertical; min-height:90px}
+.btn{display:inline-flex; align-items:center; gap:8px; padding:11px 22px; border-radius:8px; font-weight:600; font-size:14px; cursor:pointer; border:none; transition:all 180ms ease; font-family:'Fira Sans',"PingFang SC",sans-serif}
+.btn-gold{background:var(--gold); color:#2B0A4E}
+.btn-gold:hover{opacity:.92; transform:translateY(-1px)}
+.btn-ghost{background:transparent; color:var(--ice); border:1.5px solid var(--ice)}
+.btn-ghost:hover{background:rgba(178,252,6,.08)}
+.btn-sm{padding:7px 14px; font-size:13px}
+.btn:disabled{opacity:.45; cursor:not-allowed; transform:none}
+.notice{min-height:22px; margin-top:12px; font-size:13px; color:var(--ice)}
+.notice.error{color:var(--err)}
+.tabs{display:flex; gap:8px; margin:28px 0 20px; flex-wrap:wrap}
+.tab{background:var(--panel); border:1px solid var(--border-soft); color:var(--muted); border-radius:999px; padding:10px 20px; font-size:14px; font-weight:600}
+.tab.active{background:var(--gold); border-color:var(--gold); color:#2B0A4E}
+.toolbar{display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap}
+.spacer{flex:1}
+.card{background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-md); padding:18px 20px; margin-bottom:12px}
+.card h3{font-size:16px; font-weight:600; font-family:'Fira Sans',"PingFang SC",sans-serif; margin:8px 0 4px}
+.card .sub{color:var(--muted); font-size:13px}
+.card ul{list-style:none; padding-left:0; color:var(--muted); font-size:13.5px; margin-top:8px}
+.card ul li{display:flex; gap:8px; align-items:flex-start; margin-bottom:5px}
+.card ul li svg{width:14px; height:14px; stroke:var(--grape); flex:none; margin-top:3px}
+.row-actions{display:flex; gap:10px; margin-top:14px; flex-wrap:wrap}
+.empty{text-align:center; color:var(--faint); padding:48px 20px; border:1px dashed var(--border-soft); border-radius:var(--radius-md)}
+.score-hero{background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-lg); padding:36px; text-align:center; margin-bottom:16px}
+.score-hero .num{font-family:'Fira Code',monospace; font-size:64px; font-weight:700; color:var(--ice)}
+.score-hero p{color:var(--muted); font-size:14px; margin-top:8px}
+.rule-list{list-style:none; display:flex; flex-direction:column; gap:10px; margin-top:16px}
+.rule-list li{background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:12px 16px; font-size:13.5px; display:flex; justify-content:space-between; gap:12px; color:var(--muted)}
+.rule-list .sv{font-family:'Fira Code',monospace; white-space:nowrap}
+dialog{width:min(560px,calc(100% - 28px)); border:1px solid var(--border-soft); border-radius:var(--radius-lg); padding:0; color:var(--text); background:var(--panel-2); box-shadow:0 32px 80px rgba(0,0,0,.5)}
+dialog::backdrop{background:rgba(20,4,40,.7); backdrop-filter:blur(3px)}
+.modal{padding:28px}
+.modal h2{font-size:20px; margin-bottom:6px}
+.modal p.desc{color:var(--muted); font-size:13.5px; margin-bottom:6px}
+.modal-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:20px}
+.foot{padding:36px 0; font-size:12.5px; color:var(--faint); border-top:1px solid var(--border-soft); margin-top:48px}
+.foot-inner{display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap}
+.me-bar{display:flex; align-items:center; gap:10px; background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-md); padding:12px 18px; margin:20px 0 4px; font-size:13.5px; color:var(--muted); flex-wrap:wrap}
+.me-bar b{color:var(--text)}
+
+/* ===== v0.4 retheme: 荧光绿底 × 绮菫紫字 ===== */
+body{background-image:radial-gradient(900px 480px at 12% -4%, rgba(138,59,236,.12), transparent 60%),radial-gradient(800px 500px at 88% 6%, rgba(255,255,255,.35), transparent 60%)}
+::selection{background:var(--grape); color:#ffffff}
+.nav{background:rgba(178,252,6,.94); border-bottom:1px solid rgba(138,59,236,.25)}
+.brand-mark{background:var(--grape); color:var(--neon)}
+.pill-gold{border-color:rgba(138,59,236,.45)}
+input[type=text],input[type=password],textarea{background:#ffffff}
+.btn-gold{color:#ffffff}
+.btn-ghost{color:var(--grape); border-color:var(--grape)}
+.btn-ghost:hover{background:rgba(138,59,236,.08)}
+.tab.active{color:#ffffff}
+dialog::backdrop{background:rgba(43,10,78,.55)}
+@media(max-width:640px){.nav .pill{display:none}}</style>
+</head>
+<body>
+<nav class="nav"><div class="wrap nav-inner">
+  <a class="brand" href="index.html"><span class="brand-mark">H</span>HHBA <span class="mono" style="font-size:11px;color:var(--muted);letter-spacing:.14em">执行者接单</span></a>
+  <div class="nav-right"><span class="pill pill-gold">积分模拟阶段 · 不涉及真实资金</span><button class="linklike" id="logout" hidden>退出</button></div>
+</div></nav>
+
+<div class="wrap">
+  <section id="login-view" class="login">
+    <span class="kicker">EXECUTOR ACCESS · 执行者接单</span>
+    <h1>来接活。</h1>
+    <p class="hint">用 HHBA 内部访问密钥建立会话，然后填写你的执行者 ID 开始接单。密钥只用于建会话，不写入页面也不保存在浏览器里。</p>
+    <label class="f" for="internal-key">内部访问密钥</label>
+    <input id="internal-key" type="password" autocomplete="off" placeholder="HHBA_INTERNAL_API_KEY">
+    <label class="f" for="executor-id">你的执行者 ID</label>
+    <input id="executor-id" type="text" autocomplete="off" placeholder="例如 w001">
+    <label class="f" for="executor-name">昵称（可选，首次认领时建档）</label>
+    <input id="executor-name" type="text" autocomplete="off" placeholder="例如 吴其">
+    <div style="margin-top:18px"><button class="btn btn-gold" id="login-btn" style="width:100%;justify-content:center">进入接单页</button></div>
+    <div class="notice" id="login-notice"></div>
+  </section>
+
+  <main id="app-view" hidden>
+    <div class="me-bar"><span>当前执行者</span><b class="mono" id="me-id">–</b><span id="me-score" class="pill pill-ice">可靠分 –</span><div class="spacer"></div><button class="linklike" id="switch-id">切换身份</button></div>
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="open">可接任务</button>
+      <button class="tab" data-tab="mine">我的任务</button>
+      <button class="tab" data-tab="score">我的可靠分</button>
+    </div>
+
+    <section id="tab-open">
+      <div class="toolbar"><span class="sub" style="color:var(--muted);font-size:13px">待认领的任务 · 认领后请按验收标准交付</span><div class="spacer"></div><button class="btn btn-ghost btn-sm" id="refresh-open">刷新</button></div>
+      <div id="open-list"></div>
+    </section>
+
+    <section id="tab-mine" hidden>
+      <div class="toolbar"><span class="sub" style="color:var(--muted);font-size:13px">我认领的任务 · 交付后等待工头验收</span><div class="spacer"></div><button class="btn btn-ghost btn-sm" id="refresh-mine">刷新</button></div>
+      <div id="mine-list"></div>
+    </section>
+
+    <section id="tab-score" hidden>
+      <div class="score-hero">
+        <div class="num" id="score-num">–</div>
+        <p id="score-desc">加载中…</p>
+      </div>
+      <ul class="rule-list">
+        <li><span>验收通过、准时交付</span><span class="sv" style="color:var(--ice)">+2 分</span></li>
+        <li><span>验收打回、返工重做</span><span class="sv" style="color:var(--gold)">−10 分</span></li>
+        <li><span>可靠分上限 120，下限 0；新用户基准 100 分</span><span class="sv" style="color:var(--muted)">规则</span></li>
+        <li><span>老板可设门槛：只派给高分执行者</span><span class="sv" style="color:var(--muted)">派单</span></li>
+      </ul>
+      <p class="sub" style="color:var(--faint);font-size:12.5px;margin-top:16px">积分模拟阶段：验收通过后积分记入你的执行者账户，不涉及真实资金结算。</p>
+    </section>
+  </main>
+
+  <footer class="foot"><div class="foot-inner">
+    <span><b class="mono">HHBA</b> · 执行者接单页</span>
+    <span>积分模拟阶段 · 不涉及真实资金结算</span>
+  </div></footer>
+</div>
+
+<dialog id="deliver-dialog"><form method="dialog" id="deliver-form"><div class="modal">
+  <h2>提交交付</h2>
+  <p class="desc" id="deliver-goal"></p>
+  <label class="f" for="deliver-summary">交付说明 *</label>
+  <textarea id="deliver-summary" placeholder="这次交付做了什么、交付了什么"></textarea>
+  <label class="f" for="deliver-artifacts">交付物（每行一条，如文件链接/网盘地址）</label>
+  <textarea id="deliver-artifacts" placeholder="https://…/成果文件.pdf"></textarea>
+  <label class="f" for="deliver-evidence">佐证（每行一条，如截图/过程记录）</label>
+  <textarea id="deliver-evidence" placeholder="https://…/截图.png"></textarea>
+  <label class="f" for="deliver-notes">验收备注（对照验收标准自查，可选）</label>
+  <textarea id="deliver-notes" placeholder="已对照验收标准自查：…"></textarea>
+  <div class="notice" id="deliver-notice"></div>
+  <div class="modal-actions">
+    <button class="btn btn-ghost btn-sm" value="cancel" formnovalidate>取消</button>
+    <button class="btn btn-gold btn-sm" id="deliver-submit" value="default">提交交付</button>
+  </div>
+</div></form></dialog>
+
+<script>
+const API = location.hostname === '127.0.0.1' && location.port === '4173' ? 'http://127.0.0.1:8787' : '';
+const $ = (s) => document.querySelector(s);
+async function api(path, init = {}) {
+  const res = await fetch(`${API}${path}`, { credentials: 'include', ...init, headers: { 'Content-Type': 'application/json', ...(init.headers || {}) } });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || '操作失败，请重试');
+  return body;
+}
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '&gt;': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function fmtBudget(b) {
+  if (b == null || b === '') return '待确认';
+  if (typeof b === 'number' && Number.isFinite(b)) return `${b} 积分`;
+  if (typeof b === 'string') return b;
+  if (typeof b === 'object' && b.currency) return `${b.currency} ${b.min ?? ''}–${b.max ?? ''}`;
+  return String(b);
+}
+function fmtTime(iso) { if (!iso) return '–'; try { return new Date(iso).toLocaleString('zh-CN', { hour12: false }); } catch { return iso; } }
+function lines(v) { return String(v || '').split('\n').map((s) => s.trim()).filter(Boolean); }
+const MINE_STATUS = { IN_PROGRESS: ['执行中', 'pill-ice'], REWORK: ['返工中', 'pill-err'] };
+let tasks = [], me = { id: '', name: '' };
+const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.6"><path d="M20 6L9 17l-5-5"/></svg>';
+
+/* 登录 */
+$('#login-btn').addEventListener('click', async () => {
+  const notice = $('#login-notice'); notice.className = 'notice'; notice.textContent = '正在建立会话…';
+  const id = $('#executor-id').value.trim();
+  if (!id) { notice.className = 'notice error'; notice.textContent = '请填写你的执行者 ID'; return; }
+  try {
+    await api('/internal/session', { method: 'POST', headers: { 'X-HHBA-Internal-Key': $('#internal-key').value } });
+    me.id = id; me.name = $('#executor-name').value.trim();
+    try { localStorage.setItem('hhba_executor_id', id); if (me.name) localStorage.setItem('hhba_executor_name', me.name); } catch {}
+    $('#internal-key').value = '';
+    $('#me-id').textContent = me.name ? `${me.name}（${me.id}）` : me.id;
+    $('#login-view').hidden = true; $('#app-view').hidden = false; $('#logout').hidden = false;
+    await refreshAll();
+  } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
+});
+try {
+  const savedId = localStorage.getItem('hhba_executor_id'), savedName = localStorage.getItem('hhba_executor_name');
+  if (savedId) $('#executor-id').value = savedId;
+  if (savedName) $('#executor-name').value = savedName;
+} catch {}
+$('#logout').addEventListener('click', () => location.reload());
+$('#switch-id').addEventListener('click', () => { try { localStorage.removeItem('hhba_executor_id'); localStorage.removeItem('hhba_executor_name'); } catch {} location.reload(); });
+document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach((x) => x.classList.remove('active'));
+  t.classList.add('active');
+  ['open', 'mine', 'score'].forEach((k) => { $(`#tab-${k}`).hidden = t.dataset.tab !== k; });
+}));
+
+/* 可接任务 */
+function renderOpen() {
+  const list = $('#open-list');
+  const open = tasks.filter((t) => t.status === 'MATCHING_CAPABILITY');
+  if (!open.length) { list.innerHTML = '<div class="empty">当前没有可接任务，稍后再来看看。</div>'; return; }
+  list.innerHTML = open.map((t) => `
+    <div class="card">
+      <div><span class="pill pill-gold">待认领</span> <span class="pill pill-dim">${esc((t.humanGap || {}).type || '')}</span></div>
+      <h3>${esc(t.goal || '')}</h3>
+      <p class="sub">预算 ${esc(fmtBudget(t.budget))} · 工头 ${(esc((t.foreman || {}).tool || 'unknown'))}${t.deadline ? ` · 期限 ${esc(t.deadline)}` : ''}</p>
+      ${t.acceptanceCriteria && t.acceptanceCriteria.length ? `<ul>${t.acceptanceCriteria.slice(0, 4).map((c) => `<li>${CHECK_SVG}<span>${esc(c)}</span></li>`).join('')}${t.acceptanceCriteria.length > 4 ? `<li>…等 ${t.acceptanceCriteria.length} 条验收标准</li>` : ''}</ul>` : ''}
+      ${t.capabilityRequirements && t.capabilityRequirements.length ? `<p class="sub" style="margin-top:8px">需要：${esc(t.capabilityRequirements.slice(0, 3).join(' · '))}</p>` : ''}
+      <div class="row-actions"><button class="btn btn-gold btn-sm claim-btn" data-id="${esc(t.id)}">认领此任务</button></div>
+    </div>`).join('');
+  list.querySelectorAll('.claim-btn').forEach((b) => b.addEventListener('click', () => claimTask(b.dataset.id)));
+}
+async function claimTask(id) {
+  const btn = document.querySelector(`.claim-btn[data-id="${CSS.escape(id)}"]`);
+  if (btn) btn.disabled = true;
+  try {
+    await api(`/internal/human-capability-requests/${encodeURIComponent(id)}/claim`, {
+      method: 'POST', body: JSON.stringify({ handler_id: me.id, handler_display_name: me.name || undefined })
+    });
+    await refreshAll();
+    document.querySelector('.tab[data-tab="mine"]').click();
+  } catch (e) { alert(e.message); if (btn) btn.disabled = false; }
+}
+$('#refresh-open').addEventListener('click', () => loadTasks().then(renderAll));
+
+/* 我的任务 */
+function renderMine() {
+  const list = $('#mine-list');
+  const mine = tasks.filter((t) => t.assignment && t.assignment.handlerId === me.id && (t.status === 'IN_PROGRESS' || t.status === 'REWORK'));
+  if (!mine.length) { list.innerHTML = '<div class="empty">你还没有进行中的任务，去"可接任务"认领一单吧。</div>'; return; }
+  list.innerHTML = mine.map((t) => {
+    const [label, pill] = MINE_STATUS[t.status] || [t.status, 'pill-dim'];
+    const vf = t.verification;
+    return `<div class="card">
+      <div><span class="pill ${pill}">${label}</span> <span class="pill pill-dim">${esc((t.humanGap || {}).type || '')}</span></div>
+      <h3>${esc(t.goal || '')}</h3>
+      <p class="sub">预算 ${esc(fmtBudget(t.budget))}${t.deadline ? ` · 期限 ${esc(t.deadline)}` : ''}</p>
+      ${t.status === 'REWORK' && vf && vf.reasons && vf.reasons.length ? `<p class="sub" style="color:var(--err);margin-top:8px">打回意见：${esc(vf.reasons.join('；'))}</p>` : ''}
+      ${t.acceptanceCriteria && t.acceptanceCriteria.length ? `<ul>${t.acceptanceCriteria.map((c) => `<li>${CHECK_SVG}<span>${esc(c)}</span></li>`).join('')}</ul>` : ''}
+      <div class="row-actions"><button class="btn btn-gold btn-sm deliver-btn" data-id="${esc(t.id)}">提交交付</button></div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.deliver-btn').forEach((b) => b.addEventListener('click', () => openDeliver(b.dataset.id)));
+}
+$('#refresh-mine').addEventListener('click', () => loadTasks().then(renderAll));
+
+/* 交付 */
+function openDeliver(id) {
+  const t = tasks.find((x) => x.id === id); if (!t) return;
+  $('#deliver-goal').textContent = t.goal || '';
+  ['deliver-summary', 'deliver-artifacts', 'deliver-evidence', 'deliver-notes'].forEach((k) => { $(`#${k}`).value = ''; });
+  $('#deliver-notice').className = 'notice'; $('#deliver-notice').textContent = '';
+  $('#deliver-form').dataset.id = id;
+  $('#deliver-dialog').showModal();
+}
+$('#deliver-dialog [value="cancel"]').addEventListener('click', (e) => { e.preventDefault(); $('#deliver-dialog').close(); });
+$('#deliver-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = $('#deliver-form').dataset.id;
+  const notice = $('#deliver-notice'); notice.className = 'notice'; notice.textContent = '提交中…';
+  const payload = {
+    summary: $('#deliver-summary').value.trim(),
+    artifacts: lines($('#deliver-artifacts').value),
+    evidence: lines($('#deliver-evidence').value),
+    acceptance_notes: $('#deliver-notes').value.trim()
+  };
+  if (!payload.artifacts.length && !payload.evidence.length) {
+    notice.className = 'notice error'; notice.textContent = '交付物或佐证至少填一项'; return;
+  }
+  try {
+    await api(`/internal/human-capability-requests/${encodeURIComponent(id)}/deliver`, { method: 'POST', body: JSON.stringify(payload) });
+    notice.textContent = '交付成功，等待工头验收。';
+    setTimeout(() => { $('#deliver-dialog').close(); refreshAll(); }, 900);
+  } catch (err) { notice.className = 'notice error'; notice.textContent = err.message; }
+});
+
+/* 可靠分 */
+async function loadScore() {
+  try {
+    const data = await api('/internal/executors');
+    const x = (data.executors || []).find((e) => e.id === me.id);
+    const score = x ? (x.reliabilityScore ?? 100) : 100;
+    $('#score-num').textContent = score;
+    $('#score-num').style.color = score >= 100 ? 'var(--ice)' : score >= 80 ? 'var(--gold)' : 'var(--err)';
+    $('#score-desc').textContent = x
+      ? `累计完成 ${x.completedTasks ?? 0} 单 · 打回 ${x.rejectedTasks ?? 0} 单`
+      : '暂无记录，认领第一单后开始计分（基准 100 分）';
+    $('#me-score').textContent = `可靠分 ${score}`;
+  } catch (e) { $('#score-desc').textContent = `读取失败：${e.message}`; }
+}
+
+/* 加载 */
+async function loadTasks() {
+  try { const data = await api('/internal/human-capability-requests'); tasks = data.requests || []; }
+  catch (e) { tasks = []; $('#open-list').innerHTML = `<div class="empty">读取失败：${esc(e.message)}</div>`; }
+}
+function renderAll() { renderOpen(); renderMine(); }
+async function refreshAll() { await loadTasks(); renderAll(); await loadScore(); }
+</script>
+</body>
+</html>
