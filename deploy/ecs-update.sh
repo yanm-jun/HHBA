@@ -11,7 +11,7 @@ APP_DIR="/opt/hhba-demo"
 API_SVC="hhba-demo-api"
 WEB_SVC="hhba-demo-web"
 # 应用文件下载源(jsDelivr,国内可达;pin 到 commit 保证 immutable)
-FILE_BASE="https://cdn.jsdelivr.net/gh/yanm-jun/HHBA@c5c1a11"
+FILE_BASE="https://cdn.jsdelivr.net/gh/yanm-jun/HHBA@407c703"
 APP_FILES="server.js web-server.js package.json package-lock.json index.html approve.html ops.html tasks.html docs.html assets/hero-visual.webp assets/tpl-h5.webp assets/tpl-miniprogram.webp assets/tpl-payment.webp"
 
 if [ "$(id -u)" -ne 0 ]; then
