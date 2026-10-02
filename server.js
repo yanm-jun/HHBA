@@ -477,6 +477,7 @@ function getUser(id) {
   return users.get(String(id).trim()) || null;
 }
 // 登录即建档:按联系方式找用户,找不到则新建(默认执行者角色);老执行者档案自动迁移展示名
+// 返回 { user, isNewUser }
 function getOrCreateUser(contact) {
   const userId = userIdFor(contact);
   let user = users.get(userId);
@@ -489,10 +490,12 @@ function getOrCreateUser(contact) {
       roles: ['executor'],
       contacts: [{ type: contact.type, value: contact.value }],
       passwordHash: null,
+      onboarded: false, // 新用户未完成引导;老用户无此字段视为 true(见 publicUser)
       createdAt: now, updatedAt: now,
     };
     users.set(userId, user);
     persistUsers();
+    return { user, isNewUser: true };
   } else {
     // 同一用户换了联系方式登录,合并联系方式
     if (!user.contacts.some((c) => c.type === contact.type && c.value === contact.value)) {
@@ -501,7 +504,7 @@ function getOrCreateUser(contact) {
       persistUsers();
     }
   }
-  return user;
+  return { user, isNewUser: false };
 }
 function publicUser(user) {
   const executor = executors.get(user.id);
@@ -509,6 +512,7 @@ function publicUser(user) {
     id: user.id,
     displayName: user.displayName,
     roles: user.roles || ['executor'],
+    onboarded: user.onboarded !== false, // 老用户无此字段视为已引导,不打扰
     hasPassword: Boolean(user.passwordHash),
     reliabilityScore: executor?.reliabilityScore ?? 100,
     completedTasks: executor?.completedTasks ?? 0,
@@ -1532,11 +1536,11 @@ http.createServer(async (request, response) => {
         return json(response, 400, { error: `验证码不正确(还剩 ${5 - record.attempts} 次)` });
       }
       otpStore.delete(key);
-      const user = getOrCreateUser(contact);
+      const { user, isNewUser } = getOrCreateUser(contact);
       const sessionId = `hhba_user_${randomUUID()}`;
       const expiresAt = new Date(now + userSessionLifetimeMs).toISOString();
       userSessions.set(sessionId, { userId: user.id, contactKey: key, displayName: user.displayName, expiresAt });
-      return jsonWithHeaders(response, 200, { user: publicUser(user) }, {
+      return jsonWithHeaders(response, 200, { user: publicUser(user), isNewUser }, {
         'Set-Cookie': `hhba_user_session=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(userSessionLifetimeMs / 1000)}`,
       });
     } catch (error) { return json(response, 400, { error: error.message }); }
@@ -1597,6 +1601,44 @@ http.createServer(async (request, response) => {
     return jsonWithHeaders(response, 200, { status: 'logged_out' }, {
       'Set-Cookie': 'hhba_user_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0',
     });
+  }
+
+  // 新用户引导完成(需用户登录):设置昵称/角色/自报技能
+  if (request.method === 'POST' && request.url === '/api/users/me/onboard') {
+    const session = getUserSession(request);
+    if (!session) return json(response, 401, { error: '请先登录' });
+    const user = getUser(session.userId);
+    if (!user) return json(response, 401, { error: '用户不存在,请重新登录' });
+    try {
+      const body = await readBody(request);
+      const displayName = String(body.displayName ?? '').trim();
+      if (!displayName) return json(response, 400, { error: '昵称不能为空' });
+      if (displayName.length > 24) return json(response, 400, { error: '昵称最多 24 个字符' });
+      const role = String(body.role ?? '').trim();
+      if (!['executor', 'boss', 'both'].includes(role)) return json(response, 400, { error: "role 必须是 executor / boss / both 之一" });
+      user.displayName = displayName;
+      user.roles = role === 'both' ? ['executor', 'boss'] : [role];
+      user.onboarded = true;
+      user.updatedAt = new Date().toISOString();
+      // 执行者申报技能:走自报技能逻辑(source='self',verified=false)
+      const skills = Array.isArray(body.skills) ? body.skills : [];
+      const addedSkills = [];
+      if (role !== 'boss' && skills.length) {
+        for (const tag of skills) {
+          const t = String(tag ?? '').trim();
+          if (!SKILL_TAGS[t]) continue;
+          const executor = getExecutor(user.id);
+          const existing = executor.skills?.find((s) => s.tag === t);
+          if (existing?.verified) continue; // 已认证的不覆盖
+          addedSkills.push(upsertExecutorSkill(user.id, t, { level: 3, verified: false, source: 'self' }));
+        }
+      }
+      persistUsers();
+      persistExecutors();
+      // 同步 session 中的展示名
+      session.displayName = displayName;
+      return json(response, 200, { user: publicUser(user), addedSkills });
+    } catch (error) { return json(response, 400, { error: error.message }); }
   }
 
   // 执行者用自己的登录态认领任务(用户侧,无需 internal key)

@@ -53,6 +53,29 @@ textarea{resize:vertical; min-height:90px}
 .notice{min-height:22px; margin-top:12px; font-size:13px; color:var(--grape)}
 .notice.error{color:var(--err)}
 .notice.ok{color:var(--ok)}
+
+/* onboarding */
+.ob-overlay{position:fixed; inset:0; z-index:200; background:rgba(26,11,46,.5); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; padding:20px}
+.ob-card{background:var(--card); border-radius:20px; max-width:480px; width:100%; padding:36px 32px; box-shadow:0 24px 64px rgba(26,11,46,.25); animation:obIn .25s ease}
+@keyframes obIn{from{opacity:0; transform:translateY(16px) scale(.98)} to{opacity:1; transform:none}}
+.ob-steps{display:flex; gap:6px; margin-bottom:24px}
+.ob-stepdot{flex:1; height:4px; border-radius:2px; background:var(--border)}
+.ob-stepdot.on{background:var(--grape)}
+.ob-card h2{font-size:24px; font-weight:800; margin-bottom:8px; letter-spacing:-.01em}
+.ob-card .ob-sub{color:var(--muted); font-size:14px; margin-bottom:20px}
+.ob-role{display:grid; gap:10px; margin-bottom:8px}
+.ob-rolecard{border:1.5px solid var(--border); border-radius:14px; padding:16px 18px; cursor:pointer; transition:all .15s; display:flex; gap:14px; align-items:center}
+.ob-rolecard:hover{border-color:var(--grape)}
+.ob-rolecard.sel{border-color:var(--grape); background:rgba(138,59,236,.06)}
+.ob-rolecard .ri{font-size:28px}
+.ob-rolecard b{display:block; font-size:16px}
+.ob-rolecard span{font-size:13px; color:var(--muted)}
+.ob-skill{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:8px}
+.ob-skillchip{border:1.5px solid var(--border); border-radius:999px; padding:10px 18px; font-size:14px; font-weight:600; cursor:pointer; transition:all .15s; color:var(--muted)}
+.ob-skillchip.sel{border-color:var(--grape); background:var(--grape); color:#fff}
+.ob-actions{display:flex; gap:10px; margin-top:24px}
+.ob-actions .btn{flex:1}
+@media(max-width:480px){.ob-card{padding:28px 22px}}
 .tabs{display:flex; gap:8px; margin:24px 0 20px; flex-wrap:wrap}
 .tab{background:var(--card); border:1.5px solid var(--border); color:var(--muted); border-radius:999px; padding:10px 22px; font-size:14px; font-weight:600; transition:all .15s}
 .tab:hover{border-color:var(--grape)}
@@ -147,6 +170,7 @@ dialog::backdrop{background:rgba(26,11,46,.45); backdrop-filter:blur(4px)}
     <div class="tabs" style="margin-bottom:8px">
       <button class="tab active" data-ltab="otp">验证码登录</button>
       <button class="tab" data-ltab="pwd">账号密码登录</button>
+      <button class="tab" data-ltab="reg">新用户注册</button>
     </div>
     <div id="ltab-otp">
       <label class="f" for="contact">手机号 / QQ 邮箱</label>
@@ -166,8 +190,56 @@ dialog::backdrop{background:rgba(26,11,46,.45); backdrop-filter:blur(4px)}
       <div style="margin-top:20px"><button class="btn btn-primary" id="pwd-login-btn" style="width:100%">登录进入</button></div>
       <p class="hint" style="margin-top:12px">还没有密码？先用验证码登录一次，再设置登录密码。</p>
     </div>
+    <div id="ltab-reg" hidden>
+      <p class="hint" style="margin-bottom:4px">新用户用验证码登录即自动完成注册，无需单独填表。登录后我们会带你做 1 分钟新手引导。</p>
+      <label class="f" for="reg-contact">手机号 / QQ 邮箱</label>
+      <input id="reg-contact" type="text" autocomplete="off" placeholder="例如 13800001111 或 name@qq.com">
+      <label class="f" for="reg-code">验证码</label>
+      <div style="display:flex;gap:10px">
+        <input id="reg-code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位数字" style="flex:1">
+        <button class="btn btn-outline btn-sm" id="reg-get-code" style="white-space:nowrap">获取验证码</button>
+      </div>
+      <div style="margin-top:20px"><button class="btn btn-primary" id="reg-btn" style="width:100%">注册并登录</button></div>
+    </div>
     <div class="notice" id="login-notice"></div>
   </section>
+
+  <!-- 新手引导 -->
+  <div class="ob-overlay" id="ob-overlay" hidden>
+    <div class="ob-card">
+      <div class="ob-steps"><div class="ob-stepdot on" id="ob-dot-1"></div><div class="ob-stepdot" id="ob-dot-2"></div><div class="ob-stepdot" id="ob-dot-3"></div></div>
+      <div id="ob-step-1">
+        <h2>欢迎来到 HHBA 👋</h2>
+        <p class="ob-sub">先给自己起个昵称，执行者和老板都会看到它。</p>
+        <label class="f" for="ob-name">昵称</label>
+        <input id="ob-name" type="text" maxlength="24" placeholder="例如：靠谱老王">
+        <div class="ob-actions"><button class="btn btn-primary" id="ob-next-1" style="width:100%">下一步</button></div>
+      </div>
+      <div id="ob-step-2" hidden>
+        <h2>你是来做什么的？</h2>
+        <p class="ob-sub">选择你的角色，之后可以在个人中心修改。</p>
+        <div class="ob-role">
+          <div class="ob-rolecard" data-role="executor"><span class="ri">🙋</span><div><b>我是来接单的</b><span>认领任务、提交交付、赚积分</span></div></div>
+          <div class="ob-rolecard" data-role="boss"><span class="ri">📋</span><div><b>我是来发单的</b><span>发布任务、验收交付、结算积分</span></div></div>
+          <div class="ob-rolecard" data-role="both"><span class="ri">🔄</span><div><b>都试试</b><span>接单发单两不误</span></div></div>
+        </div>
+        <div class="ob-actions">
+          <button class="btn btn-outline" id="ob-back-2">上一步</button>
+          <button class="btn btn-primary" id="ob-next-2">下一步</button>
+        </div>
+      </div>
+      <div id="ob-step-3" hidden>
+        <h2>你擅长哪类任务？</h2>
+        <p class="ob-sub">申报技能（可多选）。申报后可在任务大厅被优先推荐，通过测评可获得认证徽章。</p>
+        <div class="ob-skill" id="ob-skills"></div>
+        <div class="ob-actions">
+          <button class="btn btn-outline" id="ob-back-3">上一步</button>
+          <button class="btn btn-primary" id="ob-finish">完成，进入平台</button>
+        </div>
+      </div>
+      <div class="notice" id="ob-notice"></div>
+    </div>
+  </div>
 
   <!-- 主应用 -->
   <main id="app-view" hidden>
@@ -368,8 +440,14 @@ document.querySelectorAll('#login-view .tab').forEach((t) => t.addEventListener(
   t.classList.add('active');
   $('#ltab-otp').hidden = t.dataset.ltab !== 'otp';
   $('#ltab-pwd').hidden = t.dataset.ltab !== 'pwd';
+  $('#ltab-reg').hidden = t.dataset.ltab !== 'reg';
   const n = $('#login-notice'); n.className = 'notice'; n.textContent = '';
 }));
+function activateLoginTab(name) {
+  const t = document.querySelector(`#login-view .tab[data-ltab="${name}"]`);
+  if (t) t.click();
+}
+if (location.hash === '#register') activateLoginTab('reg');
 let codeTimer = null;
 function startCountdown() {
   const btn = $('#get-code'); let s = 60;
@@ -395,7 +473,7 @@ async function doLogin(path, payload) {
   const n = $('#login-notice'); n.className = 'notice'; n.textContent = '登录中…';
   try {
     const d = await api(path, { method: 'POST', body: JSON.stringify(payload) });
-    enterApp(d.user);
+    enterApp(d.user, d.isNewUser);
   } catch (e) { n.className = 'notice error'; n.textContent = e.message; }
 }
 $('#login-btn').addEventListener('click', () => {
@@ -408,7 +486,23 @@ $('#pwd-login-btn').addEventListener('click', () => {
   if (!contact || !password) { const n = $('#login-notice'); n.className = 'notice error'; n.textContent = '请填写账号和密码'; return; }
   doLogin('/api/auth/login-password', { contact, password });
 });
-function enterApp(user) {
+/* 注册:与验证码登录同一套接口,后端自动建档 */
+$('#reg-get-code').addEventListener('click', async () => {
+  const n = $('#login-notice'); n.className = 'notice'; n.textContent = '发送中…';
+  const contact = $('#reg-contact').value.trim();
+  if (!contact) { n.className = 'notice error'; n.textContent = '请先填写手机号或 QQ 邮箱'; return; }
+  try {
+    const d = await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ contact }) });
+    n.className = 'notice ok'; n.textContent = `验证码已发送至 ${d.sentTo}，5 分钟内有效`;
+    $('#reg-code').focus();
+  } catch (e) { n.className = 'notice error'; n.textContent = e.message; }
+});
+$('#reg-btn').addEventListener('click', () => {
+  const contact = $('#reg-contact').value.trim(), code = $('#reg-code').value.trim();
+  if (!contact || !code) { const n = $('#login-notice'); n.className = 'notice error'; n.textContent = '请填写账号和验证码'; return; }
+  doLogin('/api/auth/verify', { contact, code });
+});
+function enterApp(user, isNewUser) {
   me = user;
   $('#me-name').textContent = user.displayName || user.id;
   $('#me-score').textContent = `可靠分 ${user.reliabilityScore ?? 100}`;
@@ -416,6 +510,8 @@ function enterApp(user) {
   $('#set-pwd-box').hidden = true;
   $('#login-view').hidden = true; $('#app-view').hidden = false; $('#logout').hidden = false;
   refreshAll();
+  // 新用户或未完成引导:弹出新手引导
+  if (isNewUser || user.onboarded === false) startOnboarding(user);
 }
 $('#set-pwd-btn').addEventListener('click', () => { $('#set-pwd-box').hidden = !$('#set-pwd-box').hidden; });
 $('#set-pwd-submit').addEventListener('click', async () => {
@@ -429,7 +525,74 @@ $('#set-pwd-submit').addEventListener('click', async () => {
 $('#logout').addEventListener('click', async () => { try { await api('/api/auth/logout', { method: 'POST' }); } catch {} location.reload(); });
 $('#switch-id').addEventListener('click', async () => { try { await api('/api/auth/logout', { method: 'POST' }); } catch {} location.reload(); });
 $('#nav-me').addEventListener('click', (e) => { e.preventDefault(); if (me) document.querySelector('.tab[data-tab="mine"]').click(); else $('#login-view').scrollIntoView({behavior:'smooth'}); });
-(async () => { try { const d = await api('/api/auth/me'); if (d.user) enterApp(d.user); } catch {} })();
+(async () => { try { const d = await api('/api/auth/me'); if (d.user) enterApp(d.user, d.user.onboarded === false); } catch {} })();
+
+/* ---------- 新手引导 ---------- */
+let obRole = null, obSkills = new Set();
+function obShow(step) {
+  [1, 2, 3].forEach((i) => {
+    $(`#ob-step-${i}`).hidden = i !== step;
+    $(`#ob-dot-${i}`).classList.toggle('on', i <= step);
+  });
+  const n = $('#ob-notice'); n.className = 'notice'; n.textContent = '';
+}
+function startOnboarding(user) {
+  obRole = null; obSkills = new Set();
+  $('#ob-name').value = (user.displayName && !user.displayName.includes('@') && !/^\d+$/.test(user.displayName)) ? user.displayName : '';
+  document.querySelectorAll('.ob-rolecard').forEach((c) => c.classList.remove('sel'));
+  renderObSkills();
+  $('#ob-overlay').hidden = false;
+  obShow(1);
+  setTimeout(() => $('#ob-name').focus(), 100);
+}
+function renderObSkills() {
+  const tags = skillTags.length ? skillTags : [
+    { tag: 'h5_walkthrough', name: 'H5/落地页真机走查' },
+    { tag: 'miniprogram_smoke', name: '小程序/App 冒烟测试' },
+    { tag: 'sandbox_payment', name: '沙箱表单/支付链路验证' },
+  ];
+  $('#ob-skills').innerHTML = tags.map((t) =>
+    `<button type="button" class="ob-skillchip${obSkills.has(t.tag) ? ' sel' : ''}" data-tag="${esc(t.tag)}">${esc(t.name)}</button>`
+  ).join('');
+  document.querySelectorAll('#ob-skills .ob-skillchip').forEach((c) => c.addEventListener('click', () => {
+    const tag = c.dataset.tag;
+    if (obSkills.has(tag)) obSkills.delete(tag); else obSkills.add(tag);
+    c.classList.toggle('sel');
+  }));
+}
+document.querySelectorAll('.ob-rolecard').forEach((c) => c.addEventListener('click', () => {
+  document.querySelectorAll('.ob-rolecard').forEach((x) => x.classList.remove('sel'));
+  c.classList.add('sel');
+  obRole = c.dataset.role;
+}));
+$('#ob-next-1').addEventListener('click', () => {
+  const name = $('#ob-name').value.trim();
+  if (!name) { const n = $('#ob-notice'); n.className = 'notice error'; n.textContent = '请先起个昵称'; return; }
+  obShow(2);
+});
+$('#ob-back-2').addEventListener('click', () => obShow(1));
+$('#ob-next-2').addEventListener('click', () => {
+  if (!obRole) { const n = $('#ob-notice'); n.className = 'notice error'; n.textContent = '请选择你的角色'; return; }
+  if (obRole === 'boss') { finishOnboarding(); return; } // 发单的不用选技能
+  renderObSkills();
+  obShow(3);
+});
+$('#ob-back-3').addEventListener('click', () => obShow(2));
+$('#ob-finish').addEventListener('click', finishOnboarding);
+async function finishOnboarding() {
+  const n = $('#ob-notice'); n.className = 'notice'; n.textContent = '保存中…';
+  try {
+    const d = await api('/api/users/me/onboard', { method: 'POST', body: JSON.stringify({
+      displayName: $('#ob-name').value.trim(),
+      role: obRole || 'executor',
+      skills: [...obSkills],
+    }) });
+    me = d.user;
+    $('#me-name').textContent = me.displayName || me.id;
+    $('#ob-overlay').hidden = true;
+    refreshAll();
+  } catch (e) { n.className = 'notice error'; n.textContent = e.message; }
+}
 
 /* ---------- 页签 ---------- */
 document.querySelectorAll('#app-view > .tabs .tab').forEach((t) => t.addEventListener('click', () => {
