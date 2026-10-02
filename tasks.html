@@ -606,6 +606,13 @@ async function finishOnboarding() {
     $('#me-name').textContent = me.displayName || me.id;
     $('#ob-overlay').hidden = true;
     refreshAll();
+    if (d.welcomeBonus > 0) {
+      const n2 = document.createElement('div');
+      n2.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#8A3BEC;color:#fff;padding:12px 24px;border-radius:12px;font-size:15px;font-weight:600;z-index:9999;box-shadow:0 8px 24px rgba(138,59,236,.3)';
+      n2.textContent = `🎉 新人见面礼：+${d.welcomeBonus} 积分已到账`;
+      document.body.appendChild(n2);
+      setTimeout(() => n2.remove(), 4000);
+    }
   } catch (e) { n.className = 'notice error'; n.textContent = e.message; }
 }
 

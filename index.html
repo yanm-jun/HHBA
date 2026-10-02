@@ -128,6 +128,41 @@ footer{border-top:1px solid var(--border); padding:36px 0; margin-top:72px}
 .nav-mobile a:hover,.nav-mobile a:active{background:rgba(138,59,236,.06); color:var(--grape)}
 .nav{position:relative}
 @media(max-width:720px){.nav-toggle{display:block}.nav-inner>.btn{display:none}}
+
+/* 动画演示：AI 包工头工作流 */
+.demo-stage{background:var(--card); border:1px solid var(--border); border-radius:24px; padding:40px; position:relative; overflow:hidden; max-width:900px; margin:0 auto}
+@media(max-width:760px){.demo-stage{padding:24px 16px}}
+.demo-screen{position:relative; height:340px; background:var(--bg); border-radius:16px; border:1px solid var(--border); overflow:hidden; margin-bottom:20px}
+@media(max-width:760px){.demo-screen{height:300px}}
+.demo-caption{min-height:56px; text-align:center; font-size:16px; color:var(--text); font-weight:600; margin-bottom:16px; transition:opacity .3s}
+.demo-caption small{display:block; font-weight:400; color:var(--muted); font-size:14px; margin-top:4px}
+.demo-controls{display:flex; gap:12px; justify-content:center; align-items:center}
+.demo-btn{background:var(--grape); color:#fff; border:none; border-radius:10px; padding:10px 24px; font-size:15px; font-weight:600; cursor:pointer; transition:all .18s}
+.demo-btn:hover{background:#7A2FD6}
+.demo-btn.ghost{background:transparent; color:var(--grape); border:2px solid var(--grape)}
+.demo-btn.ghost:hover{background:rgba(138,59,236,.06)}
+.demo-progress{display:flex; gap:6px; justify-content:center; margin-bottom:16px}
+.demo-dot{width:8px; height:8px; border-radius:50%; background:var(--border); transition:all .3s}
+.demo-dot.active{background:var(--grape); transform:scale(1.3)}
+.demo-dot.done{background:var(--neon); border:1.5px solid var(--grape)}
+/* 演示元素 */
+.d-task{position:absolute; background:#fff; border:2px solid var(--grape); border-radius:12px; padding:12px 16px; font-size:14px; font-weight:600; box-shadow:0 4px 16px rgba(138,59,236,.15); transition:all .8s cubic-bezier(.4,0,.2,1); opacity:0}
+.d-task .budget{color:var(--grape); font-weight:800}
+.d-robot{position:absolute; width:64px; height:64px; border-radius:50%; background:var(--grape); display:grid; place-items:center; font-size:32px; transition:all .8s; opacity:0; box-shadow:0 8px 24px rgba(138,59,236,.3)}
+.d-person{position:absolute; width:48px; height:48px; border-radius:50%; background:#fff; border:2px solid var(--border); display:grid; place-items:center; font-size:20px; font-weight:700; transition:all .8s; opacity:0}
+.d-person.matched{border-color:var(--grape); box-shadow:0 0 0 4px rgba(138,59,236,.15)}
+.d-person.claimed{border-color:var(--neon); background:var(--neon); transform:scale(1.15)}
+.d-scan{position:absolute; border:2px dashed var(--grape); border-radius:50%; opacity:0; pointer-events:none}
+.d-scan.on{opacity:1; animation:scanPulse 1s ease-in-out 3}
+@keyframes scanPulse{0%,100%{transform:scale(1); opacity:1}50%{transform:scale(1.3); opacity:.4}}
+.d-check{position:absolute; font-size:48px; opacity:0; transform:scale(.3); transition:all .5s cubic-bezier(.34,1.56,.64,1)}
+.d-check.show{opacity:1; transform:scale(1)}
+.d-coins{position:absolute; font-size:24px; opacity:0; transition:all 1s}
+.d-scorebar{position:absolute; background:#fff; border:1px solid var(--border); border-radius:10px; padding:10px 14px; font-size:13px; opacity:0; transition:opacity .5s; min-width:180px}
+.d-scorebar .bar{height:8px; background:var(--border); border-radius:4px; margin-top:6px; overflow:hidden}
+.d-scorebar .fill{height:100%; background:linear-gradient(90deg,var(--grape),var(--neon)); border-radius:4px; width:60%; transition:width 1s ease}
+.d-label{position:absolute; font-size:12px; color:var(--faint); background:rgba(255,255,255,.9); padding:2px 8px; border-radius:6px; opacity:0; transition:opacity .5s}
+@media (prefers-reduced-motion: reduce){.d-scan.on{animation:none}.d-task,.d-robot,.d-person{transition:none}}
 </style>
 </head>
 <body>
@@ -191,6 +226,52 @@ footer{border-top:1px solid var(--border); padding:36px 0; margin-top:72px}
   </div>
 </section>
 
+<!-- 动画演示：AI 包工头工作流 -->
+<section class="section wrap" id="demo">
+  <h2 class="sec-title reveal">看一遍就懂：AI 包工头怎么干活</h2>
+  <p class="sec-sub reveal">60 秒动画，还原一单任务从发布到结算的完整闭环。</p>
+  <div class="demo-stage reveal">
+    <div class="demo-progress" id="demo-progress">
+      <span class="demo-dot"></span><span class="demo-dot"></span><span class="demo-dot"></span>
+      <span class="demo-dot"></span><span class="demo-dot"></span><span class="demo-dot"></span>
+    </div>
+    <div class="demo-screen" id="demo-screen">
+      <!-- 任务卡片 -->
+      <div class="d-task" id="d-task" style="left:5%;top:20px">
+        📱 H5 走查任务<br><span class="budget">50 积分</span>
+      </div>
+      <!-- AI 机器人 -->
+      <div class="d-robot" id="d-robot" style="left:46%;top:130px">🤖</div>
+      <!-- 扫描波 -->
+      <div class="d-scan" id="d-scan" style="left:38%;top:100px;width:120px;height:120px"></div>
+      <!-- 3 个执行者 -->
+      <div class="d-person" id="d-p1" style="left:12%;top:200px">李</div>
+      <div class="d-person" id="d-p2" style="left:30%;top:230px">王</div>
+      <div class="d-person" id="d-p3" style="left:52%;top:230px">张</div>
+      <div class="d-person" id="d-p4" style="left:72%;top:200px">刘</div>
+      <div class="d-person" id="d-p5" style="left:84%;top:230px">陈</div>
+      <!-- 验收打勾 -->
+      <div class="d-check" id="d-check" style="left:44%;top:120px">✅</div>
+      <!-- 金币 -->
+      <div class="d-coins" id="d-coins" style="left:48%;top:140px">🪙</div>
+      <!-- 可靠分条 -->
+      <div class="d-scorebar" id="d-scorebar" style="left:30%;top:60px">
+        小李 · 可靠分 <b id="d-score-num">98</b>
+        <div class="bar"><div class="fill" id="d-score-fill"></div></div>
+      </div>
+      <!-- 标签 -->
+      <div class="d-label" id="d-label-task" style="left:5%;top:4px">任务大厅</div>
+      <div class="d-label" id="d-label-robot" style="left:44%;top:110px">AI 包工头</div>
+      <div class="d-label" id="d-label-exec" style="left:8%;top:184px">129 位执行者</div>
+    </div>
+    <div class="demo-caption" id="demo-caption">点击播放，看 AI 包工头怎么把活派出去</div>
+    <div class="demo-controls">
+      <button class="demo-btn" id="demo-play">▶ 播放演示</button>
+      <button class="demo-btn ghost" id="demo-replay" hidden>↻ 重播</button>
+    </div>
+  </div>
+</section>
+
 <section class="section wrap">
   <div class="talent reveal">
     <div>
@@ -203,6 +284,43 @@ footer{border-top:1px solid var(--border); padding:36px 0; margin-top:72px}
       <li><span>验收打回，返工重做</span><span class="tag" style="color:#FF6B6B">−10 分</span></li>
       <li><span>复合信誉分：公开评价 + 私有反馈 + 履约数据</span><span class="tag">v0.8</span></li>
     </ul>
+  </div>
+</section>
+
+<!-- 执行者赚钱板块 -->
+<section class="section wrap" id="earn">
+  <h2 class="sec-title reveal">在 HHBA 赚钱</h2>
+  <p class="sec-sub reveal">有手机就能接单，真机验证任务，交付验收通过就结算积分。</p>
+  <div class="steps">
+    <div class="step reveal">
+      <div class="num">1</div>
+      <h3>免费注册</h3>
+      <p>手机号或 QQ 邮箱验证码登录即注册，<strong>新人送 10 积分见面礼</strong>。</p>
+    </div>
+    <div class="step reveal reveal-d1">
+      <div class="num">2</div>
+      <h3>申报技能，接单</h3>
+      <p>选你会的三类任务：H5 走查、小程序冒烟、支付验证。任务大厅认领，AI 按技能和可靠分派单。</p>
+    </div>
+    <div class="step reveal reveal-d2">
+      <div class="num">3</div>
+      <h3>交付结算</h3>
+      <p>按验收标准交付，AI 验收通过立即结算。单单 20–150 积分，按时交付还涨可靠分。</p>
+    </div>
+  </div>
+  <div style="text-align:center; margin-top:36px" class="reveal">
+    <a class="btn btn-primary" href="tasks.html#register">免费注册，领 10 积分见面礼</a>
+    <p style="font-size:13px; color:var(--faint); margin-top:12px">已有 <b style="color:var(--grape)">129</b> 位执行者在场 · 积分模拟阶段</p>
+  </div>
+</section>
+
+<!-- 实时动态 -->
+<section class="section wrap" id="live" style="padding-top:0">
+  <div class="reveal" style="background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px 24px; max-width:720px; margin:0 auto; display:flex; align-items:center; gap:12px">
+    <span style="font-size:20px">🔔</span>
+    <div style="flex:1; overflow:hidden; height:28px; position:relative">
+      <div id="live-ticker" style="position:absolute; white-space:nowrap; font-size:14px; color:var(--muted); line-height:28px; transition:transform .5s">加载中…</div>
+    </div>
   </div>
 </section>
 
@@ -282,6 +400,165 @@ if (counter) {
   }, { threshold: 0.5 });
   cio.observe(counter);
 }
+
+// ===== 动画演示：AI 包工头工作流 =====
+(function(){
+  var screen = document.getElementById('demo-screen');
+  var caption = document.getElementById('demo-caption');
+  var playBtn = document.getElementById('demo-play');
+  var replayBtn = document.getElementById('demo-replay');
+  var dots = document.querySelectorAll('#demo-progress .demo-dot');
+  if (!screen || !playBtn) return;
+
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var timers = [];
+  function later(ms, fn){ timers.push(setTimeout(fn, reduced ? 0 : ms)); }
+  function clearAll(){ timers.forEach(clearTimeout); timers = []; }
+
+  function el(id){ return document.getElementById(id); }
+  function setDot(i){
+    dots.forEach(function(d, j){
+      d.classList.toggle('active', j === i);
+      d.classList.toggle('done', j < i);
+    });
+  }
+  function reset(){
+    clearAll();
+    ['d-task','d-robot','d-p1','d-p2','d-p3','d-p4','d-p5'].forEach(function(id){
+      var n = el(id); if (n){ n.style.opacity = 0; }
+    });
+    ['d-p1','d-p2','d-p3','d-p4','d-p5'].forEach(function(id){
+      el(id).classList.remove('matched','claimed');
+    });
+    el('d-scan').classList.remove('on');
+    el('d-check').classList.remove('show');
+    el('d-coins').style.opacity = 0;
+    el('d-scorebar').style.opacity = 0;
+    ['d-label-task','d-label-robot','d-label-exec'].forEach(function(id){ el(id).style.opacity = 0; });
+    // 复位位置
+    el('d-task').style.left = '5%'; el('d-task').style.top = '20px';
+    el('d-coins').style.left = '48%'; el('d-coins').style.top = '140px';
+    el('d-score-num').textContent = '98';
+    el('d-score-fill').style.width = '60%';
+    setDot(-1);
+  }
+  function say(html){ caption.style.opacity = 0; setTimeout(function(){ caption.innerHTML = html; caption.style.opacity = 1; }, reduced ? 0 : 200); }
+
+  var steps = [
+    function(){ // 1. 老板发布
+      setDot(0);
+      say('① 老板发布任务<small>一单"H5 走查"，预算 50 积分，任务卡片进入大厅</small>');
+      var t = el('d-task'); t.style.opacity = 1;
+      el('d-label-task').style.opacity = 1;
+    },
+    function(){ // 2. AI 扫描匹配
+      setDot(1);
+      say('② AI 包工头扫描<small>从 129 位执行者里，匹配出 3 位有 H5 技能的</small>');
+      el('d-robot').style.opacity = 1;
+      el('d-label-robot').style.opacity = 1;
+      el('d-label-exec').style.opacity = 1;
+      ['d-p1','d-p2','d-p3','d-p4','d-p5'].forEach(function(id){ el(id).style.opacity = 1; });
+      later(600, function(){
+        el('d-scan').classList.add('on');
+        later(1200, function(){
+          el('d-p1').classList.add('matched');
+          el('d-p3').classList.add('matched');
+          el('d-p5').classList.add('matched');
+        });
+      });
+    },
+    function(){ // 3. 小李认领
+      setDot(2);
+      say('③ 小李认领<small>可靠分 98，H5 技能已认证，任务状态变为"进行中"</small>');
+      el('d-p1').classList.add('claimed');
+      var t = el('d-task');
+      t.style.left = '8%'; t.style.top = '120px';
+      t.innerHTML = '📱 H5 走查任务<br><span class="budget">进行中 · 小李</span>';
+    },
+    function(){ // 4. 交付验收
+      setDot(3);
+      say('④ 小李交付，AI 验收通过<small>截图回传，按验收标准自动检查，打勾通过</small>');
+      el('d-check').classList.add('show');
+    },
+    function(){ // 5. 结算
+      setDot(4);
+      say('⑤ 50 积分结算到小李账户<small>从冻结资金划转，数字实时滚动</small>');
+      var c = el('d-coins'); c.style.opacity = 1;
+      c.style.left = '20%'; c.style.top = '220px';
+      el('d-check').classList.remove('show');
+    },
+    function(){ // 6. 可靠分+2
+      setDot(5);
+      say('⑥ 小李可靠分 +2<small>按时交付，信誉上涨，下次优先派单 🎉</small>');
+      var sb = el('d-scorebar'); sb.style.opacity = 1;
+      later(400, function(){
+        el('d-score-num').textContent = '100';
+        el('d-score-fill').style.width = '68%';
+      });
+      later(1800, function(){
+        playBtn.hidden = true; replayBtn.hidden = false;
+      });
+    }
+  ];
+
+  var STEP_MS = 3200;
+  function play(){
+    reset();
+    playBtn.hidden = true; replayBtn.hidden = true;
+    steps.forEach(function(fn, i){ later(i * STEP_MS, fn); });
+    // 总时长后显示重播
+    later(steps.length * STEP_MS, function(){ playBtn.hidden = true; replayBtn.hidden = false; });
+  }
+  playBtn.addEventListener('click', play);
+  replayBtn.addEventListener('click', play);
+  // 进入视口自动播放一次
+  var played = false;
+  var o = new IntersectionObserver(function(es){
+    es.forEach(function(e){
+      if (e.isIntersecting && !played){ played = true; o.disconnect(); later(600, play); }
+    });
+  }, { threshold: 0.3 });
+  o.observe(screen);
+})();
+
+// ===== 实时动态 ticker =====
+(function(){
+  var ticker = document.getElementById('live-ticker');
+  if (!ticker) return;
+  var items = [
+    '🎉 某执行者完成了 H5 走查，+50 积分',
+    '🎉 某执行者完成了小程序冒烟测试，+80 积分',
+    '🎉 某执行者完成了支付链路验证，+120 积分',
+    '✨ 新人注册，领取了 10 积分见面礼',
+    '⭐ 某执行者可靠分达到 100，获得优先派单'
+  ];
+  // 尝试从 API 拉真实数据
+  fetch('/api/human-capability-requests/recent?limit=5').then(function(r){ return r.json(); }).then(function(d){
+    if (d && d.items && d.items.length){
+      items = d.items.map(function(t){
+        return '🎉 某执行者完成了' + (t.title || '任务') + '，+' + (t.budget || '?') + ' 积分';
+      });
+    }
+    start();
+  }).catch(start);
+  var idx = 0;
+  function start(){
+    ticker.textContent = items[0];
+    setInterval(function(){
+      idx = (idx + 1) % items.length;
+      ticker.style.transform = 'translateY(-28px)';
+      ticker.style.opacity = 0;
+      setTimeout(function(){
+        ticker.textContent = items[idx];
+        ticker.style.transform = 'translateY(28px)';
+        setTimeout(function(){
+          ticker.style.transform = 'translateY(0)';
+          ticker.style.opacity = 1;
+        }, 50);
+      }, 500);
+    }, 4000);
+  }
+})();
 </script>
 
 

@@ -1620,6 +1620,16 @@ http.createServer(async (request, response) => {
       user.roles = role === 'both' ? ['executor', 'boss'] : [role];
       user.onboarded = true;
       user.updatedAt = new Date().toISOString();
+      // 新人见面礼:完成引导送 10 积分(每个 user 只送一次,防刷)
+      let welcomeBonus = 0;
+      if (!user.welcomeBonusGranted) {
+        const bonusAccount = `executor:${user.id}`;
+        ledger.balances[bonusAccount] = balanceOf(bonusAccount) + 10;
+        addLedgerEntry('BONUS', { requestId: null, amount: 10, from: 'platform', to: bonusAccount, note: '新人见面礼' });
+        persistLedger();
+        user.welcomeBonusGranted = true;
+        welcomeBonus = 10;
+      }
       // 执行者申报技能:走自报技能逻辑(source='self',verified=false)
       const skills = Array.isArray(body.skills) ? body.skills : [];
       const addedSkills = [];
@@ -1637,7 +1647,7 @@ http.createServer(async (request, response) => {
       persistExecutors();
       // 同步 session 中的展示名
       session.displayName = displayName;
-      return json(response, 200, { user: publicUser(user), addedSkills });
+      return json(response, 200, { user: publicUser(user), addedSkills, welcomeBonus });
     } catch (error) { return json(response, 400, { error: error.message }); }
   }
 
@@ -1664,6 +1674,17 @@ http.createServer(async (request, response) => {
     if (!session) return json(response, 401, { error: '请先登录' });
     const open = [...requests.values()].filter((i) => i.status === 'MATCHING_CAPABILITY').map(serialize);
     return json(response, 200, { requests: open });
+  }
+  // 最近完成的任务(公开,只读,用于首页动态;脱敏:不暴露执行者真实身份)
+  if (request.method === 'GET' && request.url.startsWith('/api/human-capability-requests/recent')) {
+    const url = new URL(request.url, 'http://localhost');
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '5', 10) || 5, 20);
+    const done = [...requests.values()]
+      .filter((i) => i.status === 'VERIFIED')
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))
+      .slice(0, limit)
+      .map((i) => ({ title: i.title, budget: budgetAmountOf(i) }));
+    return json(response, 200, { items: done });
   }
   if (request.method === 'GET' && request.url === '/api/human-capability-requests/mine') {
     const session = getUserSession(request);
