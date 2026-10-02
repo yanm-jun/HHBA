@@ -2258,6 +2258,12 @@ http.createServer(async (request, response) => {
   if (request.method === 'GET' && request.url === '/api/skill-tags') {
     return json(response, 200, { tags: Object.values(SKILL_TAGS), total: Object.keys(SKILL_TAGS).length });
   }
+  // 老板积分余额查询(需用户登录):发单页显示余额用
+  if (request.method === 'GET' && request.url === '/api/boss/balance') {
+    const session = getUserSession(request);
+    if (!session) return json(response, 401, { error: '请先登录' });
+    return json(response, 200, { balance: balanceOf('boss'), escrow: balanceOf('escrow') });
+  }
   // 创建测评任务(需 admin 或 assessment scope;legacy/ops 向后兼容)
   if (request.method === 'POST' && request.url === '/internal/assessments') {
     const identity = requireInternal(request, response);
