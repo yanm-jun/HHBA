@@ -6,103 +6,100 @@
 <title>HHBA · 包工头控制台</title>
 <meta name="description" content="HHBA 包工头控制台：任务流水线、策略管理、积分账本、执行者管理。">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
 :root{
-  --neon:#B2FC06; --grape:#8A3BEC; --ink:#2B0A4E;
-  --gold:#B2FC06; --ice:#B2FC06;
-  --bg:#8A3BEC; --panel:rgba(20,4,40,.22); --panel-2:rgba(20,4,40,.30);
-  --text:#FFFFFF; --muted:rgba(255,255,255,.80); --faint:rgba(255,255,255,.55);
-  --border:rgba(178,252,6,.40); --border-soft:rgba(255,255,255,.18);
-  --err:#FF8A7A; --ok:#B2FC06;
-  --radius-lg:20px; --radius-md:14px; --radius-sm:9px;
+  --neon:#B2FC06; --grape:#8A3BEC; --ink:#1A0B2E;
+  --bg:#FAFAF7; --card:#FFFFFF; --text:#1A0B2E;
+  --muted:#5C5470; --faint:#8A8398; --border:#E8E4F0;
+  --radius:16px; --err:#D64545; --ok:#2E9E5B;
 }
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:var(--bg); color:var(--text); font-family:'Fira Sans',-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; line-height:1.65;
-  background-image:radial-gradient(900px 480px at 12% -4%, rgba(178,252,6,.06), transparent 60%),radial-gradient(800px 500px at 88% 6%, rgba(178,252,6,.07), transparent 60%);}
-h1,h2,h3,.mono{font-family:'Fira Code','Fira Sans',"PingFang SC",monospace}
+body{background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  line-height:1.65}
 .wrap{max-width:1200px; margin:0 auto; padding:0 24px}
-::selection{background:var(--gold); color:#2B0A4E}
 button,input,select,textarea{font:inherit}
 button{cursor:pointer}
 /* nav */
-.nav{position:sticky; top:0; z-index:50; backdrop-filter:blur(14px); background:rgba(20,4,40,.86); border-bottom:1px solid var(--border-soft)}
+.nav{position:sticky; top:0; z-index:50; background:rgba(250,250,247,.92); backdrop-filter:blur(12px); border-bottom:1px solid var(--border)}
 .nav-inner{display:flex; align-items:center; justify-content:space-between; height:62px}
-.brand{display:flex; align-items:center; gap:10px; font-family:'Fira Code',monospace; font-weight:700; font-size:18px; color:var(--text); text-decoration:none}
-.brand-mark{width:30px; height:30px; border-radius:9px; background:linear-gradient(135deg,var(--gold),#B2FC06); display:grid; place-items:center; color:#2B0A4E; font-size:15px; font-weight:700}
+.brand{display:flex; align-items:center; gap:10px; font-weight:800; font-size:18px; color:var(--text); text-decoration:none}
+.brand-mark{width:30px; height:30px; border-radius:9px; background:var(--grape); color:#fff; display:grid; place-items:center; font-size:15px; font-weight:800}
 .nav-right{display:flex; align-items:center; gap:12px; font-size:13px; color:var(--muted)}
-.pill{font-family:'Fira Code',monospace; font-size:11px; padding:5px 12px; border-radius:999px; white-space:nowrap; letter-spacing:.04em}
-.pill-gold{color:var(--gold); border:1px solid rgba(178,252,6,.4)}
-.pill-ice{color:var(--ice); border:1px solid var(--border)}
-.pill-dim{color:var(--muted); border:1px solid var(--border-soft)}
-.pill-err{color:var(--err); border:1px solid rgba(255,122,110,.4)}
-.linklike{background:none; border:none; color:var(--ice); font-size:13px; padding:6px 4px}
+.pill{font-size:11px; padding:5px 12px; border-radius:999px; white-space:nowrap; letter-spacing:.04em; font-weight:600}
+.pill-gold{color:var(--grape); border:1px solid rgba(138,59,236,.4); background:rgba(138,59,236,.06)}
+.pill-ice{color:#0a7a3a; border:1px solid rgba(46,158,91,.4); background:rgba(46,158,91,.06)}
+.pill-dim{color:var(--muted); border:1px solid var(--border)}
+.pill-err{color:var(--err); border:1px solid rgba(214,69,69,.4); background:rgba(214,69,69,.06)}
+.linklike{background:none; border:none; color:var(--grape); font-size:13px; padding:6px 4px}
 /* login */
-.login{max-width:520px; margin:80px auto 0; background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-lg); padding:36px 32px}
-.login .kicker{font-family:'Fira Code',monospace; font-size:12px; letter-spacing:.14em; color:var(--ice)}
-.login h1{font-size:30px; margin:10px 0 8px}
+.login{max-width:480px; margin:72px auto 0; background:var(--card); border:1px solid var(--border); border-radius:20px; padding:36px 32px; box-shadow:0 8px 32px rgba(138,59,236,.06)}
+.login .kicker{font-size:12px; letter-spacing:.12em; color:var(--grape); font-weight:600}
+.login h1{font-size:28px; font-weight:800; margin:10px 0 8px}
 .login p.hint{color:var(--muted); font-size:14px; margin-bottom:8px}
 label.f{display:block; font-size:12px; font-weight:600; margin:16px 0 6px; color:var(--muted)}
-input[type=text],input[type=password],input[type=number],select,textarea{width:100%; background:#2B0A4E; border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:11px 13px; color:var(--text)}
-input:focus,select:focus,textarea:focus{outline:none; border-color:var(--ice)}
-textarea{resize:vertical; min-height:90px; font-family:inherit}
-.btn{display:inline-flex; align-items:center; gap:8px; padding:11px 22px; border-radius:8px; font-weight:600; font-size:14px; cursor:pointer; border:none; transition:all 180ms ease; font-family:'Fira Sans',"PingFang SC",sans-serif}
-.btn-gold{background:var(--gold); color:#2B0A4E}
+input[type=text],input[type=password],input[type=number],select,textarea{width:100%; background:var(--bg); border:1.5px solid var(--border); border-radius:10px; padding:11px 13px; color:var(--text); transition:border-color .15s}
+input:focus,select:focus,textarea:focus{outline:none; border-color:var(--grape); box-shadow:0 0 0 3px rgba(138,59,236,.1)}
+textarea{resize:vertical; min-height:90px}
+.btn{display:inline-flex; align-items:center; gap:8px; padding:11px 22px; border-radius:10px; font-weight:600; font-size:14px; cursor:pointer; border:none; transition:all .18s ease}
+.btn-gold{background:var(--grape); color:#fff}
 .btn-gold:hover{opacity:.92; transform:translateY(-1px)}
-.btn-ghost{background:transparent; color:var(--ice); border:1.5px solid var(--ice)}
-.btn-ghost:hover{background:rgba(178,252,6,.08)}
-.btn-danger{background:transparent; color:var(--err); border:1.5px solid rgba(255,122,110,.5)}
-.btn-danger:hover{background:rgba(255,122,110,.08)}
+.btn-ghost{background:transparent; color:var(--grape); border:1.5px solid var(--grape)}
+.btn-ghost:hover{background:rgba(138,59,236,.06)}
+.btn-danger{background:transparent; color:var(--err); border:1.5px solid rgba(214,69,69,.5)}
+.btn-danger:hover{background:rgba(214,69,69,.06)}
 .btn-sm{padding:7px 14px; font-size:13px}
 .btn:disabled{opacity:.45; cursor:not-allowed; transform:none}
-.notice{min-height:22px; margin-top:12px; font-size:13px; color:var(--ice)}
+.notice{min-height:22px; margin-top:12px; font-size:13px; color:var(--grape)}
 .notice.error{color:var(--err)}
+.notice.ok{color:var(--ok)}
 /* tabs */
 .tabs{display:flex; gap:8px; margin:28px 0 20px; flex-wrap:wrap}
-.tab{background:var(--panel); border:1px solid var(--border-soft); color:var(--muted); border-radius:999px; padding:10px 20px; font-size:14px; font-weight:600}
-.tab.active{background:var(--gold); border-color:var(--gold); color:#2B0A4E}
+.tab{background:var(--card); border:1.5px solid var(--border); color:var(--muted); border-radius:999px; padding:10px 20px; font-size:14px; font-weight:600; transition:all .15s}
+.tab:hover{border-color:var(--grape)}
+.tab.active{background:var(--grape); border-color:var(--grape); color:#fff}
 .toolbar{display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap}
 .chips{display:flex; gap:8px; flex-wrap:wrap}
-.chip{background:transparent; border:1px solid var(--border-soft); color:var(--muted); border-radius:999px; padding:7px 14px; font-size:12.5px; font-family:'Fira Code',monospace}
-.chip.active{border-color:var(--ice); color:var(--ice); background:rgba(178,252,6,.07)}
+.chip{background:var(--card); border:1.5px solid var(--border); color:var(--muted); border-radius:999px; padding:7px 14px; font-size:12.5px; font-weight:600}
+.chip.active{border-color:var(--grape); color:var(--grape); background:rgba(138,59,236,.06)}
 .spacer{flex:1}
 /* cards & lists */
-.card{background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-md); padding:18px 20px; margin-bottom:12px}
-.card.clickable{cursor:pointer; transition:border-color 180ms ease}
-.card.clickable:hover{border-color:var(--border)}
+.card{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px 20px; margin-bottom:12px; transition:all .15s}
+.card.clickable{cursor:pointer}
+.card.clickable:hover{border-color:var(--grape)}
 .card-head{display:flex; justify-content:space-between; gap:12px; align-items:flex-start}
-.card h3{font-size:16px; font-weight:600; font-family:'Fira Sans',"PingFang SC",sans-serif; margin:8px 0 4px}
+.card h3{font-size:16px; font-weight:700; margin:8px 0 4px}
 .card .sub{color:var(--muted); font-size:13px}
 .meta-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:10px; margin:14px 0}
-.meta-grid>div{background:rgba(20,4,40,.6); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:10px 12px}
+.meta-grid>div{background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:10px 12px}
 .meta-grid span{display:block; font-size:11px; color:var(--faint); letter-spacing:.06em}
 .meta-grid b{display:block; font-size:13.5px; margin-top:2px; font-weight:600; word-break:break-word}
-.detail-body{display:none; border-top:1px solid var(--border-soft); margin-top:14px; padding-top:14px}
+.detail-body{display:none; border-top:1px solid var(--border); margin-top:14px; padding-top:14px}
 .detail-body.open{display:block}
-.detail-body h4{font-size:13px; color:var(--gold); margin:14px 0 6px; font-family:'Fira Code',monospace; letter-spacing:.06em}
+.detail-body h4{font-size:12px; color:var(--grape); margin:14px 0 6px; letter-spacing:.06em; font-weight:700}
 .detail-body ul{padding-left:20px; color:var(--muted); font-size:13.5px}
 .detail-body .kv{font-size:13.5px; color:var(--muted)}
 .row-actions{display:flex; gap:10px; margin-top:14px; flex-wrap:wrap}
-.empty{text-align:center; color:var(--faint); padding:48px 20px; border:1px dashed var(--border-soft); border-radius:var(--radius-md)}
+.empty{text-align:center; color:var(--faint); padding:48px 20px; border:1.5px dashed var(--border); border-radius:14px}
 /* ledger */
 .stat-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:20px}
 @media(max-width:760px){.stat-grid{grid-template-columns:1fr}}
-.stat{background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-md); padding:20px}
+.stat{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:20px}
 .stat span{display:block; font-size:12px; color:var(--muted)}
-.stat strong{display:block; font-family:'Fira Code',monospace; font-size:30px; margin-top:4px}
-.stat.gold strong{color:var(--gold)} .stat.ice strong{color:var(--ice)}
+.stat strong{display:block; font-size:30px; font-weight:800; margin-top:4px; color:var(--text)}
+.stat.gold strong{color:var(--grape)}
 table.tbl{width:100%; border-collapse:collapse; font-size:13.5px}
-table.tbl th{text-align:left; color:var(--faint); font-weight:600; font-size:12px; padding:10px 12px; border-bottom:1px solid var(--border-soft); font-family:'Fira Code',monospace; letter-spacing:.05em}
-table.tbl td{padding:11px 12px; border-bottom:1px solid var(--border-soft); vertical-align:top}
+table.tbl th{text-align:left; color:var(--faint); font-weight:600; font-size:12px; padding:10px 12px; border-bottom:1px solid var(--border); letter-spacing:.05em}
+table.tbl td{padding:11px 12px; border-bottom:1px solid var(--border); vertical-align:top}
 table.tbl tr:last-child td{border-bottom:none}
-.tbl-wrap{overflow-x:auto; background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-md); margin-bottom:20px}
-.mono-sm{font-family:'Fira Code',monospace; font-size:12.5px}
-.score{font-family:'Fira Code',monospace; font-weight:700}
-.score.hi{color:var(--ice)} .score.mid{color:var(--gold)} .score.lo{color:var(--err)}
+.tbl-wrap{overflow-x:auto; background:var(--card); border:1px solid var(--border); border-radius:14px; margin-bottom:20px}
+.mono-sm{font-size:12.5px; color:var(--muted)}
+.score{font-weight:700}
+.score.hi{color:var(--ok)} .score.mid{color:var(--grape)} .score.lo{color:var(--err)}
 /* dialog */
-dialog{width:min(560px,calc(100% - 28px)); border:1px solid var(--border-soft); border-radius:var(--radius-lg); padding:0; color:var(--text); background:var(--panel-2); box-shadow:0 32px 80px rgba(0,0,0,.5)}
-dialog::backdrop{background:rgba(20,4,40,.7); backdrop-filter:blur(3px)}
+dialog{width:min(560px,calc(100% - 28px)); border:1px solid var(--border); border-radius:20px; padding:0; color:var(--text); background:var(--card); box-shadow:0 32px 80px rgba(26,11,46,.18)}
+dialog::backdrop{background:rgba(26,11,46,.45); backdrop-filter:blur(4px)}
 .modal{padding:28px}
-.modal h2{font-size:20px; margin-bottom:6px}
+.modal h2{font-size:20px; font-weight:800; margin-bottom:6px}
 .modal p.desc{color:var(--muted); font-size:13.5px; margin-bottom:6px}
 .modal-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:20px}
 .checkline{display:flex; align-items:center; gap:8px; margin:14px 0; font-size:14px}
@@ -112,33 +109,21 @@ dialog::backdrop{background:rgba(20,4,40,.7); backdrop-filter:blur(3px)}
 .typechecks{display:flex; gap:14px; flex-wrap:wrap; margin-top:6px; font-size:13.5px}
 .typechecks label{display:flex; align-items:center; gap:6px; color:var(--muted)}
 .typechecks input{width:auto}
-details.box{background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-md); padding:18px 20px; margin-top:16px}
+details.box{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px 20px; margin-top:16px}
 details.box summary{cursor:pointer; font-weight:600; font-size:14px}
-.sec-title{font-size:17px; margin:26px 0 12px; display:flex; align-items:center; gap:10px}
-.sec-title .kicker{font-family:'Fira Code',monospace; font-size:12px; letter-spacing:.14em; color:var(--gold)}
-.foot{padding:36px 0; font-size:12.5px; color:var(--faint); border-top:1px solid var(--border-soft); margin-top:48px}
+.box{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px 20px; margin-top:16px}
+.sec-title{font-size:17px; font-weight:700; margin:26px 0 12px; display:flex; align-items:center; gap:10px}
+.sec-title .kicker{font-size:12px; letter-spacing:.12em; color:var(--grape); font-weight:600}
+.foot{padding:36px 0; font-size:12.5px; color:var(--faint); border-top:1px solid var(--border); margin-top:48px}
 .foot-inner{display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap}
 @media (prefers-reduced-motion:reduce){*{transition:none!important; animation:none!important}}
-
-/* ===== v0.4 retheme: 绮菫紫底 × 荧光绿点缀 ===== */
-body{background-image:radial-gradient(900px 480px at 12% -4%, rgba(178,252,6,.14), transparent 60%),radial-gradient(800px 500px at 88% 6%, rgba(43,10,78,.40), transparent 60%)}
-::selection{background:var(--neon); color:var(--ink)}
-.nav{background:rgba(138,59,236,.94)}
-.brand-mark{background:var(--neon); color:var(--grape)}
-.pill-gold{border-color:rgba(178,252,6,.45)}
-input[type=text],input[type=password],input[type=number],select,textarea{background:rgba(20,4,40,.45)}
-.btn-gold{color:var(--ink)}
-.btn-ghost:hover{background:rgba(178,252,6,.10)}
-.tab.active{color:var(--ink)}
-.chip.active{background:rgba(178,252,6,.14)}
-.meta-grid>div{background:rgba(20,4,40,.35)}
-dialog::backdrop{background:rgba(43,10,78,.70)}
-@media(max-width:640px){.nav .pill{display:none}}</style>
+@media(max-width:640px){.nav .pill{display:none}}
+</style>
 </head>
 <body>
 <nav class="nav"><div class="wrap nav-inner">
-  <a class="brand" href="index.html"><span class="brand-mark">H</span>HHBA <span class="mono" style="font-size:11px;color:var(--muted);letter-spacing:.14em">包工头控制台</span></a>
-  <div class="nav-right"><span class="pill pill-gold">积分模拟阶段 · 不涉及真实资金</span><button class="linklike" id="logout" hidden>退出登录</button></div>
+  <a class="brand" href="index.html"><span class="brand-mark">H</span>HHBA</a>
+  <div class="nav-right"><span class="pill pill-gold">包工头控制台</span><button class="linklike" id="logout" hidden>退出登录</button></div>
 </div></nav>
 
 <div class="wrap">

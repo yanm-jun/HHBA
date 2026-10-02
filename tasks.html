@@ -3,236 +3,377 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HHBA · 执行者接单</title>
-<meta name="description" content="HHBA 执行者接单页：看任务、认领、交付。积分模拟阶段，不涉及真实资金。">
+<title>HHBA · 任务大厅</title>
+<meta name="description" content="HHBA 任务大厅：浏览任务、认领、交付。积分模拟阶段，不涉及真实资金。">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
 :root{
-  --neon:#B2FC06; --grape:#8A3BEC; --ink:#2B0A4E;
-  --gold:#8A3BEC; --ice:#8A3BEC;
-  --bg:#B2FC06; --panel:#FFFFFF; --panel-2:#F0FFC4;
-  --text:#2B0A4E; --muted:rgba(43,10,78,.72); --faint:rgba(43,10,78,.50);
-  --border:rgba(138,59,236,.40); --border-soft:rgba(43,10,78,.14);
-  --err:#C22E2E;
-  --radius-lg:20px; --radius-md:14px; --radius-sm:9px;
+  --neon:#B2FC06; --grape:#8A3BEC; --ink:#1A0B2E;
+  --bg:#FAFAF7; --card:#FFFFFF; --text:#1A0B2E;
+  --muted:#5C5470; --faint:#8A8398; --border:#E8E4F0;
+  --radius:16px; --err:#D64545; --ok:#2E9E5B;
 }
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:var(--bg); color:var(--text); font-family:'Fira Sans',-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; line-height:1.65;
-  background-image:radial-gradient(900px 480px at 12% -4%, rgba(178,252,6,.06), transparent 60%),radial-gradient(800px 500px at 88% 6%, rgba(178,252,6,.07), transparent 60%);}
-h1,h2,h3,.mono{font-family:'Fira Code','Fira Sans',"PingFang SC",monospace}
-.wrap{max-width:960px; margin:0 auto; padding:0 24px}
-::selection{background:var(--gold); color:#2B0A4E}
-button,input,textarea{font:inherit} button{cursor:pointer}
-.nav{position:sticky; top:0; z-index:50; backdrop-filter:blur(14px); background:rgba(20,4,40,.86); border-bottom:1px solid var(--border-soft)}
-.nav-inner{display:flex; align-items:center; justify-content:space-between; height:62px}
-.brand{display:flex; align-items:center; gap:10px; font-family:'Fira Code',monospace; font-weight:700; font-size:18px; color:var(--text); text-decoration:none}
-.brand-mark{width:30px; height:30px; border-radius:9px; background:linear-gradient(135deg,var(--gold),#B2FC06); display:grid; place-items:center; color:#2B0A4E; font-size:15px; font-weight:700}
-.nav-right{display:flex; align-items:center; gap:12px; font-size:13px; color:var(--muted)}
-.pill{font-family:'Fira Code',monospace; font-size:11px; padding:5px 12px; border-radius:999px; white-space:nowrap; letter-spacing:.04em}
-.pill-gold{color:var(--gold); border:1px solid rgba(178,252,6,.4)}
-.pill-ice{color:var(--ice); border:1px solid var(--border)}
-.pill-dim{color:var(--muted); border:1px solid var(--border-soft)}
-.pill-err{color:var(--err); border:1px solid rgba(255,122,110,.4)}
-.linklike{background:none; border:none; color:var(--ice); font-size:13px; padding:6px 4px}
-.login{max-width:520px; margin:80px auto 0; background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-lg); padding:36px 32px}
-.login .kicker{font-family:'Fira Code',monospace; font-size:12px; letter-spacing:.14em; color:var(--ice)}
-.login h1{font-size:30px; margin:10px 0 8px}
-.login p.hint{color:var(--muted); font-size:14px; margin-bottom:8px}
-label.f{display:block; font-size:12px; font-weight:600; margin:16px 0 6px; color:var(--muted)}
-input[type=text],input[type=password],textarea{width:100%; background:#2B0A4E; border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:11px 13px; color:var(--text)}
-input:focus,textarea:focus{outline:none; border-color:var(--ice)}
-textarea{resize:vertical; min-height:90px}
-.btn{display:inline-flex; align-items:center; gap:8px; padding:11px 22px; border-radius:8px; font-weight:600; font-size:14px; cursor:pointer; border:none; transition:all 180ms ease; font-family:'Fira Sans',"PingFang SC",sans-serif}
-.btn-gold{background:var(--gold); color:#2B0A4E}
-.btn-gold:hover{opacity:.92; transform:translateY(-1px)}
-.btn-ghost{background:transparent; color:var(--ice); border:1.5px solid var(--ice)}
-.btn-ghost:hover{background:rgba(178,252,6,.08)}
-.btn-sm{padding:7px 14px; font-size:13px}
+html{scroll-behavior:smooth}
+body{background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  line-height:1.7; overflow-x:hidden}
+a{color:var(--grape); text-decoration:none}
+.wrap{max-width:1080px; margin:0 auto; padding:0 24px}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+/* nav */
+.nav{position:sticky; top:0; z-index:50; background:rgba(250,250,247,.92); backdrop-filter:blur(12px); border-bottom:1px solid var(--border)}
+.nav-inner{display:flex; align-items:center; justify-content:space-between; height:64px}
+.brand{display:flex; align-items:center; gap:10px; font-weight:800; font-size:20px; color:var(--text)}
+.brand:hover{text-decoration:none}
+.brand-mark{width:32px; height:32px; border-radius:10px; background:var(--grape); color:#fff; display:grid; place-items:center; font-size:16px; font-weight:800}
+.nav-links{display:flex; gap:28px; font-size:15px; align-items:center}
+.nav-links a{color:var(--muted)}
+.nav-links a:hover,.nav-links a.active{color:var(--text); font-weight:600}
+.nav-right{display:flex; align-items:center; gap:12px}
+@media(max-width:720px){.nav-links{display:none}}
+/* buttons */
+.btn{display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:12px 26px; border-radius:12px; font-weight:600; font-size:15px; cursor:pointer; border:none; transition:all .18s ease}
+.btn-primary{background:var(--grape); color:#fff}
+.btn-primary:hover{background:#7A2FD6; transform:translateY(-1px); text-decoration:none}
+.btn-outline{background:transparent; color:var(--grape); border:2px solid var(--grape)}
+.btn-outline:hover{background:rgba(138,59,236,.06)}
+.btn-sm{padding:8px 16px; font-size:13px}
 .btn:disabled{opacity:.45; cursor:not-allowed; transform:none}
-.notice{min-height:22px; margin-top:12px; font-size:13px; color:var(--ice)}
+.linklike{background:none; border:none; color:var(--grape); font-size:13px; padding:6px 4px}
+/* login */
+.login{max-width:480px; margin:72px auto 0; background:var(--card); border:1px solid var(--border); border-radius:20px; padding:40px 36px; box-shadow:0 8px 32px rgba(138,59,236,.06)}
+.login .kicker{font-size:12px; letter-spacing:.12em; color:var(--grape); font-weight:600}
+.login h1{font-size:30px; font-weight:800; margin:10px 0 8px; letter-spacing:-.01em}
+.login p.hint{color:var(--muted); font-size:14px; margin-bottom:8px}
+label.f{display:block; font-size:13px; font-weight:600; margin:18px 0 8px; color:var(--muted)}
+input[type=text],input[type=password],input[type=number],select,textarea{width:100%; background:var(--bg); border:1.5px solid var(--border); border-radius:10px; padding:12px 14px; color:var(--text); transition:border-color .15s}
+input:focus,select:focus,textarea:focus{outline:none; border-color:var(--grape); box-shadow:0 0 0 3px rgba(138,59,236,.1)}
+textarea{resize:vertical; min-height:90px}
+.notice{min-height:22px; margin-top:12px; font-size:13px; color:var(--grape)}
 .notice.error{color:var(--err)}
-.tabs{display:flex; gap:8px; margin:28px 0 20px; flex-wrap:wrap}
-.tab{background:var(--panel); border:1px solid var(--border-soft); color:var(--muted); border-radius:999px; padding:10px 20px; font-size:14px; font-weight:600}
-.tab.active{background:var(--gold); border-color:var(--gold); color:#2B0A4E}
-.toolbar{display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap}
-.spacer{flex:1}
-.card{background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-md); padding:18px 20px; margin-bottom:12px}
-.card h3{font-size:16px; font-weight:600; font-family:'Fira Sans',"PingFang SC",sans-serif; margin:8px 0 4px}
-.card .sub{color:var(--muted); font-size:13px}
-.card ul{list-style:none; padding-left:0; color:var(--muted); font-size:13.5px; margin-top:8px}
-.card ul li{display:flex; gap:8px; align-items:flex-start; margin-bottom:5px}
-.card ul li svg{width:14px; height:14px; stroke:var(--grape); flex:none; margin-top:3px}
-.row-actions{display:flex; gap:10px; margin-top:14px; flex-wrap:wrap}
-.empty{text-align:center; color:var(--faint); padding:48px 20px; border:1px dashed var(--border-soft); border-radius:var(--radius-md)}
-.score-hero{background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-lg); padding:36px; text-align:center; margin-bottom:16px}
-.score-hero .num{font-family:'Fira Code',monospace; font-size:64px; font-weight:700; color:var(--ice)}
-.score-hero p{color:var(--muted); font-size:14px; margin-top:8px}
-.rule-list{list-style:none; display:flex; flex-direction:column; gap:10px; margin-top:16px}
-.rule-list li{background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:12px 16px; font-size:13.5px; display:flex; justify-content:space-between; gap:12px; color:var(--muted)}
-.rule-list .sv{font-family:'Fira Code',monospace; white-space:nowrap}
-dialog{width:min(560px,calc(100% - 28px)); border:1px solid var(--border-soft); border-radius:var(--radius-lg); padding:0; color:var(--text); background:var(--panel-2); box-shadow:0 32px 80px rgba(0,0,0,.5)}
-dialog::backdrop{background:rgba(20,4,40,.7); backdrop-filter:blur(3px)}
-.modal{padding:28px}
-.modal h2{font-size:20px; margin-bottom:6px}
-.modal p.desc{color:var(--muted); font-size:13.5px; margin-bottom:6px}
-.modal-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:20px}
-.foot{padding:36px 0; font-size:12.5px; color:var(--faint); border-top:1px solid var(--border-soft); margin-top:48px}
-.foot-inner{display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap}
-.me-bar{display:flex; align-items:center; gap:10px; background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-md); padding:12px 18px; margin:20px 0 4px; font-size:13.5px; color:var(--muted); flex-wrap:wrap}
+.notice.ok{color:var(--ok)}
+.tabs{display:flex; gap:8px; margin:24px 0 20px; flex-wrap:wrap}
+.tab{background:var(--card); border:1.5px solid var(--border); color:var(--muted); border-radius:999px; padding:10px 22px; font-size:14px; font-weight:600; transition:all .15s}
+.tab:hover{border-color:var(--grape)}
+.tab.active{background:var(--grape); border-color:var(--grape); color:#fff}
+/* filter bar */
+.filter-bar{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin:24px 0; display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end}
+.filter-bar .fg{display:flex; flex-direction:column; gap:6px}
+.filter-bar .fg.grow{flex:1; min-width:180px}
+.filter-bar label{font-size:12px; font-weight:600; color:var(--muted)}
+.filter-bar input,.filter-bar select{padding:10px 12px; font-size:14px}
+/* task cards */
+.task-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-bottom:32px}
+@media(max-width:760px){.task-grid{grid-template-columns:1fr}}
+.task-card{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:24px; cursor:pointer; transition:all .18s ease; display:flex; flex-direction:column; gap:12px}
+.task-card:hover{border-color:var(--grape); transform:translateY(-3px); box-shadow:0 12px 32px rgba(138,59,236,.1)}
+.task-card .top{display:flex; justify-content:space-between; align-items:flex-start; gap:12px}
+.task-card h3{font-size:17px; font-weight:700; line-height:1.5; flex:1}
+.budget{font-size:18px; font-weight:800; color:var(--grape); white-space:nowrap}
+.budget small{font-size:12px; font-weight:400; color:var(--faint)}
+.skill-badges{display:flex; gap:8px; flex-wrap:wrap}
+.skill-badge{font-size:12px; font-weight:600; padding:4px 12px; border-radius:999px; background:rgba(138,59,236,.08); color:var(--grape); border:1px solid rgba(138,59,236,.2)}
+.skill-badge.verified{background:var(--neon); color:var(--ink); border-color:var(--neon)}
+.task-meta{display:flex; gap:16px; font-size:13px; color:var(--faint); flex-wrap:wrap}
+.task-meta span{display:flex; align-items:center; gap:4px}
+.status-pill{font-size:12px; font-weight:600; padding:4px 12px; border-radius:999px; white-space:nowrap}
+.status-open{background:rgba(138,59,236,.1); color:var(--grape)}
+.status-progress{background:rgba(178,252,6,.25); color:#5a7a00}
+.status-delivered{background:#FFF3CD; color:#8a6d00}
+.status-rework{background:#FDE8E8; color:var(--err)}
+.status-done{background:#E8F5E9; color:var(--ok)}
+/* executor center */
+.exec-hero{background:var(--ink); border-radius:20px; padding:36px 32px; color:#fff; margin:24px 0; display:grid; grid-template-columns:repeat(3,1fr); gap:24px}
+@media(max-width:640px){.exec-hero{grid-template-columns:1fr; padding:28px 24px}}
+.exec-hero .stat{text-align:center}
+.exec-hero .stat .num{font-size:36px; font-weight:800; color:var(--neon); line-height:1.2}
+.exec-hero .stat .lbl{font-size:13px; color:rgba(255,255,255,.6); margin-top:4px}
+.skill-row{display:flex; align-items:center; gap:16px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px 20px; margin-bottom:10px}
+.skill-row .info{flex:1}
+.skill-row .info b{font-size:15px}
+.skill-row .info p{font-size:13px; color:var(--muted); margin-top:2px}
+/* modal */
+dialog{width:min(640px,calc(100% - 32px)); border:1px solid var(--border); border-radius:20px; padding:0; color:var(--text); background:var(--card); box-shadow:0 32px 80px rgba(26,11,46,.18)}
+dialog::backdrop{background:rgba(26,11,46,.45); backdrop-filter:blur(4px)}
+.modal{padding:32px; max-height:85vh; overflow-y:auto}
+.modal h2{font-size:22px; font-weight:800; margin-bottom:12px; line-height:1.4}
+.modal .sec{margin:20px 0}
+.modal .sec h4{font-size:13px; font-weight:700; color:var(--grape); letter-spacing:.06em; margin-bottom:8px}
+.modal .sec ul{padding-left:20px; color:var(--muted); font-size:14px}
+.modal .sec ul li{margin-bottom:6px}
+.modal-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:24px; position:sticky; bottom:0; background:var(--card); padding-top:16px}
+.boss-card{background:var(--bg); border:1px solid var(--border); border-radius:12px; padding:16px; display:flex; gap:16px; align-items:center; margin-top:12px}
+.boss-card .avatar{width:48px; height:48px; border-radius:50%; background:var(--grape); color:#fff; display:grid; place-items:center; font-weight:800; font-size:18px; flex:none}
+.boss-card .binfo{flex:1}
+.boss-card .binfo b{font-size:15px}
+.boss-card .binfo p{font-size:13px; color:var(--muted)}
+/* me bar */
+.me-bar{display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px 18px; margin:20px 0; font-size:14px; color:var(--muted); flex-wrap:wrap}
 .me-bar b{color:var(--text)}
-
-/* ===== v0.4 retheme: 荧光绿底 × 绮菫紫字 ===== */
-body{background-image:radial-gradient(900px 480px at 12% -4%, rgba(138,59,236,.12), transparent 60%),radial-gradient(800px 500px at 88% 6%, rgba(255,255,255,.35), transparent 60%)}
-::selection{background:var(--grape); color:#ffffff}
-.nav{background:rgba(178,252,6,.94); border-bottom:1px solid rgba(138,59,236,.25)}
-.brand-mark{background:var(--grape); color:var(--neon)}
-.pill-gold{border-color:rgba(138,59,236,.45)}
-input[type=text],input[type=password],textarea{background:#ffffff}
-.btn-gold{color:#ffffff}
-.btn-ghost{color:var(--grape); border-color:var(--grape)}
-.btn-ghost:hover{background:rgba(138,59,236,.08)}
-.tab.active{color:#ffffff}
-dialog::backdrop{background:rgba(43,10,78,.55)}
-@media(max-width:640px){.nav .pill{display:none}}</style>
+.me-bar .score-pill{background:rgba(138,59,236,.08); color:var(--grape); font-weight:700; padding:4px 14px; border-radius:999px; font-size:13px}
+.spacer{flex:1}
+.empty{text-align:center; color:var(--faint); padding:56px 20px; border:1.5px dashed var(--border); border-radius:var(--radius); font-size:14px}
+.foot{padding:36px 0; font-size:13px; color:var(--faint); border-top:1px solid var(--border); margin-top:64px}
+.foot-inner{display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap}
+.page-head{padding:40px 0 8px}
+.page-head h1{font-size:clamp(28px,4vw,38px); font-weight:800; letter-spacing:-.01em; margin-bottom:8px}
+.page-head p{color:var(--muted); font-size:16px}
+.progress{height:8px; background:var(--border); border-radius:999px; overflow:hidden; margin-top:8px}
+.progress i{display:block; height:100%; background:var(--grape); border-radius:999px; transition:width .5s ease}
+</style>
 </head>
 <body>
+
 <nav class="nav"><div class="wrap nav-inner">
-  <a class="brand" href="index.html"><span class="brand-mark">H</span>HHBA <span class="mono" style="font-size:11px;color:var(--muted);letter-spacing:.14em">执行者接单</span></a>
-  <div class="nav-right"><span class="pill pill-gold">积分模拟阶段 · 不涉及真实资金</span><button class="linklike" id="logout" hidden>退出</button></div>
+  <a class="brand" href="index.html"><span class="brand-mark">H</span>HHBA</a>
+  <div class="nav-links">
+    <a href="tasks.html" class="active">任务大厅</a>
+    <a href="approve.html">发单</a>
+    <a href="docs.html">开发者文档</a>
+    <a href="#" id="nav-me">我的</a>
+  </div>
+  <div class="nav-right">
+    <button class="linklike" id="logout" hidden>退出</button>
+  </div>
 </div></nav>
 
 <div class="wrap">
+  <!-- 登录 -->
   <section id="login-view" class="login">
-    <span class="kicker">HHBA ACCESS · 统一登录</span>
+    <span class="kicker">EXECUTOR ACCESS</span>
     <h1>来接活。</h1>
-    <p class="hint">手机号 / 邮箱验证码登录，或账号密码登录。登录后即可认领任务、提交交付。</p>
-    <div class="tabs" role="tablist" style="margin-bottom:18px">
+    <p class="hint">验证码登录或账号密码登录。登录后认领任务、提交交付、查看收入。</p>
+    <div class="tabs" style="margin-bottom:8px">
       <button class="tab active" data-ltab="otp">验证码登录</button>
       <button class="tab" data-ltab="pwd">账号密码登录</button>
     </div>
     <div id="ltab-otp">
-      <label class="f" for="contact">手机号 / 邮箱</label>
+      <label class="f" for="contact">手机号 / QQ 邮箱</label>
       <input id="contact" type="text" autocomplete="off" placeholder="例如 13800001111 或 name@qq.com">
       <label class="f" for="otp-code">验证码</label>
       <div style="display:flex;gap:10px">
         <input id="otp-code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位数字" style="flex:1">
-        <button class="btn btn-ghost" id="get-code" style="white-space:nowrap">获取验证码</button>
+        <button class="btn btn-outline btn-sm" id="get-code" style="white-space:nowrap">获取验证码</button>
       </div>
-      <div style="margin-top:18px"><button class="btn btn-gold" id="login-btn" style="width:100%;justify-content:center">登录进入</button></div>
+      <div style="margin-top:20px"><button class="btn btn-primary" id="login-btn" style="width:100%">登录进入</button></div>
     </div>
     <div id="ltab-pwd" hidden>
       <label class="f" for="pwd-contact">手机号 / 邮箱</label>
       <input id="pwd-contact" type="text" autocomplete="username" placeholder="注册时用的手机号或邮箱">
       <label class="f" for="pwd-password">密码</label>
       <input id="pwd-password" type="password" autocomplete="current-password" placeholder="登录密码">
-      <div style="margin-top:18px"><button class="btn btn-gold" id="pwd-login-btn" style="width:100%;justify-content:center">登录进入</button></div>
-      <p class="hint" style="margin-top:10px">还没有密码？先用验证码登录一次，再在页面顶部设置登录密码。</p>
+      <div style="margin-top:20px"><button class="btn btn-primary" id="pwd-login-btn" style="width:100%">登录进入</button></div>
+      <p class="hint" style="margin-top:12px">还没有密码？先用验证码登录一次，再设置登录密码。</p>
     </div>
     <div class="notice" id="login-notice"></div>
   </section>
 
+  <!-- 主应用 -->
   <main id="app-view" hidden>
-    <div class="me-bar"><span>当前用户</span><b class="mono" id="me-id">–</b><span id="me-score" class="pill pill-ice">可靠分 –</span><div class="spacer"></div><button class="linklike" id="set-pwd-btn" hidden>设置密码</button><button class="linklike" id="switch-id">切换身份</button></div>
-    <div id="set-pwd-box" hidden style="margin:12px 0;padding:14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm)">
-      <label class="f" for="new-password">设置登录密码（至少 6 位）</label>
+    <div class="me-bar">
+      <span>👋</span><b id="me-name">–</b>
+      <span class="score-pill" id="me-score">可靠分 –</span>
+      <div class="spacer"></div>
+      <button class="linklike" id="set-pwd-btn" hidden>设置密码</button>
+      <button class="linklike" id="switch-id">切换身份</button>
+    </div>
+    <div id="set-pwd-box" hidden style="margin:0 0 16px;padding:16px;background:var(--card);border:1px solid var(--border);border-radius:12px">
+      <label class="f" for="new-password" style="margin-top:0">设置登录密码（至少 6 位）</label>
       <div style="display:flex;gap:10px">
         <input id="new-password" type="password" autocomplete="new-password" placeholder="新密码" style="flex:1">
-        <button class="btn btn-ghost btn-sm" id="set-pwd-submit" style="white-space:nowrap">保存</button>
+        <button class="btn btn-outline btn-sm" id="set-pwd-submit" style="white-space:nowrap">保存</button>
       </div>
       <div class="notice" id="set-pwd-notice"></div>
     </div>
+
     <div class="tabs" role="tablist">
-      <button class="tab active" data-tab="open">可接任务</button>
+      <button class="tab active" data-tab="hall">任务大厅</button>
       <button class="tab" data-tab="mine">我的任务</button>
-      <button class="tab" data-tab="score">我的可靠分</button>
+      <button class="tab" data-tab="income">我的收入</button>
+      <button class="tab" data-tab="skills">我的技能</button>
     </div>
 
-    <section id="tab-open">
-      <div class="toolbar"><span class="sub" style="color:var(--muted);font-size:13px">待认领的任务 · 认领后请按验收标准交付</span><div class="spacer"></div><button class="btn btn-ghost btn-sm" id="refresh-open">刷新</button></div>
-      <div id="open-list"></div>
+    <!-- 任务大厅 -->
+    <section id="tab-hall">
+      <div class="filter-bar">
+        <div class="fg grow">
+          <label for="f-keyword">关键词</label>
+          <input id="f-keyword" type="text" placeholder="搜索任务标题…">
+        </div>
+        <div class="fg">
+          <label for="f-skill">技能</label>
+          <select id="f-skill"><option value="">全部技能</option></select>
+        </div>
+        <div class="fg">
+          <label for="f-budget">预算</label>
+          <select id="f-budget">
+            <option value="">不限</option>
+            <option value="0-50">50 积分以下</option>
+            <option value="50-100">50–100 积分</option>
+            <option value="100-99999">100 积分以上</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label for="f-sort">排序</label>
+          <select id="f-sort">
+            <option value="new">最新发布</option>
+            <option value="budget-desc">预算从高到低</option>
+            <option value="budget-asc">预算从低到高</option>
+          </select>
+        </div>
+      </div>
+      <div id="hall-list"></div>
     </section>
 
+    <!-- 我的任务 -->
     <section id="tab-mine" hidden>
-      <div class="toolbar"><span class="sub" style="color:var(--muted);font-size:13px">我认领的任务 · 交付后等待工头验收</span><div class="spacer"></div><button class="btn btn-ghost btn-sm" id="refresh-mine">刷新</button></div>
+      <div class="tabs" style="margin-top:0">
+        <button class="tab active" data-mtab="active">进行中</button>
+        <button class="tab" data-mtab="review">待验收</button>
+        <button class="tab" data-mtab="done">已完成</button>
+      </div>
       <div id="mine-list"></div>
     </section>
 
-    <section id="tab-score" hidden>
-      <div class="score-hero">
-        <div class="num" id="score-num">–</div>
-        <p id="score-desc">加载中…</p>
+    <!-- 我的收入 -->
+    <section id="tab-income" hidden>
+      <div class="exec-hero" id="income-hero">
+        <div class="stat"><div class="num" id="inc-total">–</div><div class="lbl">累计收入（积分）</div></div>
+        <div class="stat"><div class="num" id="inc-month">–</div><div class="lbl">本月收入</div></div>
+        <div class="stat"><div class="num" id="inc-pending">–</div><div class="lbl">待结算</div></div>
       </div>
-      <ul class="rule-list">
-        <li><span>验收通过、准时交付</span><span class="sv" style="color:var(--ice)">+2 分</span></li>
-        <li><span>验收打回、返工重做</span><span class="sv" style="color:var(--gold)">−10 分</span></li>
-        <li><span>可靠分上限 120，下限 0；新用户基准 100 分</span><span class="sv" style="color:var(--muted)">规则</span></li>
-        <li><span>老板可设门槛：只派给高分执行者</span><span class="sv" style="color:var(--muted)">派单</span></li>
-      </ul>
-      <p class="sub" style="color:var(--faint);font-size:12.5px;margin-top:16px">积分模拟阶段：验收通过后积分记入你的执行者账户，不涉及真实资金结算。</p>
+      <div id="income-list"></div>
+    </section>
+
+    <!-- 我的技能 -->
+    <section id="tab-skills" hidden>
+      <div class="page-head" style="padding-top:8px">
+        <h1 style="font-size:24px">我的技能画像</h1>
+        <p>通过平台测评获得认证徽章，有认证的任务优先派给你。</p>
+      </div>
+      <div id="skills-list"></div>
+      <div class="empty" style="margin-top:16px">
+        想考认证？去包工头控制台的「能力测评」报名，或等平台发布测评任务。<br>
+        <span style="font-size:13px">自报技能可在下方申报，通过测评后转为认证。</span>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:16px">
+        <b>自报技能</b>
+        <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+          <select id="self-skill-tag" style="flex:1;min-width:160px"></select>
+          <select id="self-skill-level" style="width:120px">
+            <option value="1">Lv.1 入门</option><option value="2">Lv.2 熟悉</option>
+            <option value="3" selected>Lv.3 熟练</option><option value="4">Lv.4 精通</option>
+            <option value="5">Lv.5 专家</option>
+          </select>
+          <button class="btn btn-primary btn-sm" id="self-skill-submit">申报</button>
+        </div>
+        <div class="notice" id="self-skill-notice"></div>
+      </div>
     </section>
   </main>
 
   <footer class="foot"><div class="foot-inner">
-    <span><b class="mono">HHBA</b> · 执行者接单页</span>
+    <span><b>HHBA</b> · 任务大厅</span>
     <span>积分模拟阶段 · 不涉及真实资金结算</span>
   </div></footer>
 </div>
 
+<!-- 任务详情弹窗 -->
+<dialog id="task-dialog"><div class="modal">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+    <h2 id="td-title" style="flex:1"></h2>
+    <button class="linklike" id="td-close" style="font-size:20px">✕</button>
+  </div>
+  <div id="td-body"></div>
+  <div class="modal-actions">
+    <button class="btn btn-outline btn-sm" id="td-close2">关闭</button>
+    <button class="btn btn-primary btn-sm" id="td-claim" hidden>认领此任务</button>
+  </div>
+</div></dialog>
+
+<!-- 交付弹窗 -->
 <dialog id="deliver-dialog"><form method="dialog" id="deliver-form"><div class="modal">
   <h2>提交交付</h2>
-  <p class="desc" id="deliver-goal"></p>
+  <p style="color:var(--muted);font-size:14px" id="deliver-goal"></p>
   <label class="f" for="deliver-summary">交付说明 *</label>
   <textarea id="deliver-summary" placeholder="这次交付做了什么、交付了什么"></textarea>
   <label class="f" for="deliver-artifacts">交付物（每行一条，如文件链接/网盘地址）</label>
-  <textarea id="deliver-artifacts" placeholder="https://…/成果文件.pdf"></textarea>
+  <textarea id="deliver-artifacts" placeholder="https://…/成果文件"></textarea>
   <label class="f" for="deliver-evidence">佐证（每行一条，如截图/过程记录）</label>
   <textarea id="deliver-evidence" placeholder="https://…/截图.png"></textarea>
   <label class="f" for="deliver-notes">验收备注（对照验收标准自查，可选）</label>
   <textarea id="deliver-notes" placeholder="已对照验收标准自查：…"></textarea>
   <div class="notice" id="deliver-notice"></div>
   <div class="modal-actions">
-    <button class="btn btn-ghost btn-sm" value="cancel" formnovalidate>取消</button>
-    <button class="btn btn-gold btn-sm" id="deliver-submit" value="default">提交交付</button>
+    <button class="btn btn-outline btn-sm" value="cancel" formnovalidate>取消</button>
+    <button class="btn btn-primary btn-sm" id="deliver-submit" value="default">提交交付</button>
   </div>
 </div></form></dialog>
 
 <script>
-const API = location.hostname === '127.0.0.1' && location.port === '4173' ? 'http://127.0.0.1:8787' : '';
+const API = '';
 const $ = (s) => document.querySelector(s);
 async function api(path, init = {}) {
   const res = await fetch(`${API}${path}`, { credentials: 'include', ...init, headers: { 'Content-Type': 'application/json', ...(init.headers || {}) } });
-  const body = await res.json();
+  const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || '操作失败，请重试');
   return body;
 }
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '&gt;': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function budgetNum(b) {
+  if (typeof b === 'number' && Number.isFinite(b)) return b;
+  if (typeof b === 'string') { const m = b.match(/(\d+)/); return m ? Number(m[1]) : 0; }
+  if (b && typeof b === 'object') return Number(b.max ?? b.min ?? 0) || 0;
+  return 0;
+}
 function fmtBudget(b) {
   if (b == null || b === '') return '待确认';
-  if (typeof b === 'number' && Number.isFinite(b)) return `${b} 积分`;
-  if (typeof b === 'string') return b;
-  if (typeof b === 'object' && b.currency) return `${b.currency} ${b.min ?? ''}–${b.max ?? ''}`;
-  return String(b);
+  const n = budgetNum(b);
+  return n ? `${n} 积分` : String(b);
 }
-function fmtTime(iso) { if (!iso) return '–'; try { return new Date(iso).toLocaleString('zh-CN', { hour12: false }); } catch { return iso; } }
+function fmtTime(iso) { if (!iso) return '–'; try { return new Date(iso).toLocaleString('zh-CN', { hour12: false, month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' }); } catch { return iso; } }
 function lines(v) { return String(v || '').split('\n').map((s) => s.trim()).filter(Boolean); }
-const MINE_STATUS = { IN_PROGRESS: ['执行中', 'pill-ice'], REWORK: ['返工中', 'pill-err'] };
-let tasks = [], me = { id: '', name: '' };
-const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.6"><path d="M20 6L9 17l-5-5"/></svg>';
 
-/* 登录:验证码 / 账号密码 双通道 */
+let me = null, tasks = [], skillTags = [], mySkills = [];
+let mineTab = 'active';
+const SKILL_NAME = {};
+const STATUS_META = {
+  MATCHING_CAPABILITY: ['待认领', 'status-open'],
+  IN_PROGRESS: ['执行中', 'status-progress'],
+  DELIVERED: ['待验收', 'status-delivered'],
+  REWORK: ['返工中', 'status-rework'],
+  VERIFIED: ['已完成', 'status-done'],
+};
+
+/* ---------- 技能标签 ---------- */
+async function loadSkillTags() {
+  try {
+    const data = await api('/api/skill-tags');
+    skillTags = data.tags || [];
+    skillTags.forEach((t) => { SKILL_NAME[t.tag] = t.name; });
+    $('#f-skill').innerHTML = '<option value="">全部技能</option>' +
+      skillTags.map((t) => `<option value="${esc(t.tag)}">${esc(t.name)}</option>`).join('');
+    $('#self-skill-tag').innerHTML = skillTags.map((t) => `<option value="${esc(t.tag)}">${esc(t.name)}</option>`).join('');
+  } catch {}
+}
+function skillBadge(tag, verified) {
+  const name = SKILL_NAME[tag] || tag;
+  return `<span class="skill-badge${verified ? ' verified' : ''}">${esc(name)}${verified ? ' ✓' : ''}</span>`;
+}
+
+/* ---------- 登录 ---------- */
 document.querySelectorAll('#login-view .tab').forEach((t) => t.addEventListener('click', () => {
   document.querySelectorAll('#login-view .tab').forEach((x) => x.classList.remove('active'));
   t.classList.add('active');
   $('#ltab-otp').hidden = t.dataset.ltab !== 'otp';
   $('#ltab-pwd').hidden = t.dataset.ltab !== 'pwd';
-  const notice = $('#login-notice'); notice.className = 'notice'; notice.textContent = '';
+  const n = $('#login-notice'); n.className = 'notice'; n.textContent = '';
 }));
 let codeTimer = null;
-function startCodeCountdown() {
-  const btn = $('#get-code');
-  let s = 60;
-  btn.disabled = true;
-  btn.textContent = `${s}s 后重发`;
+function startCountdown() {
+  const btn = $('#get-code'); let s = 60;
+  btn.disabled = true; btn.textContent = `${s}s 后重发`;
   clearInterval(codeTimer);
   codeTimer = setInterval(() => {
     s -= 1;
@@ -241,23 +382,36 @@ function startCodeCountdown() {
   }, 1000);
 }
 $('#get-code').addEventListener('click', async () => {
-  const notice = $('#login-notice'); notice.className = 'notice'; notice.textContent = '验证码发送中…';
+  const n = $('#login-notice'); n.className = 'notice'; n.textContent = '发送中…';
   const contact = $('#contact').value.trim();
-  if (!contact) { notice.className = 'notice error'; notice.textContent = '请先填写手机号或 QQ 邮箱'; return; }
+  if (!contact) { n.className = 'notice error'; n.textContent = '请先填写手机号或 QQ 邮箱'; return; }
   try {
-    const data = await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ contact }) });
-    notice.className = 'notice ok';
-    notice.textContent = `验证码已发送至 ${data.sentTo}，5 分钟内有效`;
-    startCodeCountdown();
-    $('#otp-code').focus();
-  } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
+    const d = await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ contact }) });
+    n.className = 'notice ok'; n.textContent = `验证码已发送至 ${d.sentTo}，5 分钟内有效`;
+    startCountdown(); $('#otp-code').focus();
+  } catch (e) { n.className = 'notice error'; n.textContent = e.message; }
+});
+async function doLogin(path, payload) {
+  const n = $('#login-notice'); n.className = 'notice'; n.textContent = '登录中…';
+  try {
+    const d = await api(path, { method: 'POST', body: JSON.stringify(payload) });
+    enterApp(d.user);
+  } catch (e) { n.className = 'notice error'; n.textContent = e.message; }
+}
+$('#login-btn').addEventListener('click', () => {
+  const contact = $('#contact').value.trim(), code = $('#otp-code').value.trim();
+  if (!contact || !code) { const n = $('#login-notice'); n.className = 'notice error'; n.textContent = '请填写账号和验证码'; return; }
+  doLogin('/api/auth/verify', { contact, code });
+});
+$('#pwd-login-btn').addEventListener('click', () => {
+  const contact = $('#pwd-contact').value.trim(), password = $('#pwd-password').value;
+  if (!contact || !password) { const n = $('#login-notice'); n.className = 'notice error'; n.textContent = '请填写账号和密码'; return; }
+  doLogin('/api/auth/login-password', { contact, password });
 });
 function enterApp(user) {
-  me = { id: user.id, name: user.displayName, score: user.reliabilityScore ?? 100, completed: user.completedTasks ?? 0, rejected: user.rejectedTasks ?? 0 };
-  $('#me-id').textContent = user.displayName || user.id;
-  const roles = (user.roles || []).join(' / ');
+  me = user;
+  $('#me-name').textContent = user.displayName || user.id;
   $('#me-score').textContent = `可靠分 ${user.reliabilityScore ?? 100}`;
-  $('#me-score').title = `角色:${roles || 'executor'}`;
   $('#set-pwd-btn').hidden = Boolean(user.hasPassword);
   $('#set-pwd-box').hidden = true;
   $('#login-view').hidden = true; $('#app-view').hidden = false; $('#logout').hidden = false;
@@ -265,95 +419,155 @@ function enterApp(user) {
 }
 $('#set-pwd-btn').addEventListener('click', () => { $('#set-pwd-box').hidden = !$('#set-pwd-box').hidden; });
 $('#set-pwd-submit').addEventListener('click', async () => {
-  const notice = $('#set-pwd-notice'); notice.className = 'notice'; notice.textContent = '保存中…';
-  const password = $('#new-password').value;
+  const n = $('#set-pwd-notice'); n.className = 'notice'; n.textContent = '保存中…';
   try {
-    await api('/api/auth/set-password', { method: 'POST', body: JSON.stringify({ password }) });
-    notice.className = 'notice ok'; notice.textContent = '密码已设置,下次可用账号密码直接登录';
+    await api('/api/auth/set-password', { method: 'POST', body: JSON.stringify({ password: $('#new-password').value }) });
+    n.className = 'notice ok'; n.textContent = '密码已设置';
     $('#set-pwd-btn').hidden = true; $('#set-pwd-box').hidden = true; $('#new-password').value = '';
-  } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
-});
-$('#pwd-login-btn').addEventListener('click', async () => {
-  const notice = $('#login-notice'); notice.className = 'notice'; notice.textContent = '登录中…';
-  const contact = $('#pwd-contact').value.trim(), password = $('#pwd-password').value;
-  if (!contact || !password) { notice.className = 'notice error'; notice.textContent = '请填写账号和密码'; return; }
-  try {
-    const data = await api('/api/auth/login-password', { method: 'POST', body: JSON.stringify({ contact, password }) });
-    enterApp(data.user);
-  } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
-});
-$('#login-btn').addEventListener('click', async () => {
-  const notice = $('#login-notice'); notice.className = 'notice'; notice.textContent = '登录中…';
-  const contact = $('#contact').value.trim(), code = $('#otp-code').value.trim();
-  if (!contact || !code) { notice.className = 'notice error'; notice.textContent = '请填写邮箱/手机号和验证码'; return; }
-  try {
-    const data = await api('/api/auth/verify', { method: 'POST', body: JSON.stringify({ contact, code }) });
-    enterApp(data.user);
-  } catch (e) { notice.className = 'notice error'; notice.textContent = e.message; }
+  } catch (e) { n.className = 'notice error'; n.textContent = e.message; }
 });
 $('#logout').addEventListener('click', async () => { try { await api('/api/auth/logout', { method: 'POST' }); } catch {} location.reload(); });
 $('#switch-id').addEventListener('click', async () => { try { await api('/api/auth/logout', { method: 'POST' }); } catch {} location.reload(); });
-(async () => {
-  try {
-    const data = await api('/api/auth/me');
-    if (data.user) enterApp(data.user);
-  } catch {}
-})();
-document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
-  document.querySelectorAll('.tab').forEach((x) => x.classList.remove('active'));
+$('#nav-me').addEventListener('click', (e) => { e.preventDefault(); if (me) document.querySelector('.tab[data-tab="mine"]').click(); else $('#login-view').scrollIntoView({behavior:'smooth'}); });
+(async () => { try { const d = await api('/api/auth/me'); if (d.user) enterApp(d.user); } catch {} })();
+
+/* ---------- 页签 ---------- */
+document.querySelectorAll('#app-view > .tabs .tab').forEach((t) => t.addEventListener('click', () => {
+  document.querySelectorAll('#app-view > .tabs .tab').forEach((x) => x.classList.remove('active'));
   t.classList.add('active');
-  ['open', 'mine', 'score'].forEach((k) => { $(`#tab-${k}`).hidden = t.dataset.tab !== k; });
+  ['hall', 'mine', 'income', 'skills'].forEach((k) => { $(`#tab-${k}`).hidden = t.dataset.tab !== k; });
+  if (t.dataset.tab === 'mine') renderMine();
+  if (t.dataset.tab === 'income') renderIncome();
+  if (t.dataset.tab === 'skills') renderSkills();
+}));
+document.querySelectorAll('[data-mtab]').forEach((t) => t.addEventListener('click', () => {
+  document.querySelectorAll('[data-mtab]').forEach((x) => x.classList.remove('active'));
+  t.classList.add('active'); mineTab = t.dataset.mtab; renderMine();
 }));
 
-/* 可接任务 */
-function renderOpen() {
-  const list = $('#open-list');
-  const open = tasks.filter((t) => t.status === 'MATCHING_CAPABILITY');
-  if (!open.length) { list.innerHTML = '<div class="empty">当前没有可接任务，稍后再来看看。</div>'; return; }
-  list.innerHTML = open.map((t) => `
-    <div class="card">
-      <div><span class="pill pill-gold">待认领</span> <span class="pill pill-dim">${esc((t.humanGap || {}).type || '')}</span></div>
-      <h3>${esc(t.goal || '')}</h3>
-      <p class="sub">预算 ${esc(fmtBudget(t.budget))} · 工头 ${(esc((t.foreman || {}).tool || 'unknown'))}${t.deadline ? ` · 期限 ${esc(t.deadline)}` : ''}</p>
-      ${t.acceptanceCriteria && t.acceptanceCriteria.length ? `<ul>${t.acceptanceCriteria.slice(0, 4).map((c) => `<li>${CHECK_SVG}<span>${esc(c)}</span></li>`).join('')}${t.acceptanceCriteria.length > 4 ? `<li>…等 ${t.acceptanceCriteria.length} 条验收标准</li>` : ''}</ul>` : ''}
-      ${t.capabilityRequirements && t.capabilityRequirements.length ? `<p class="sub" style="margin-top:8px">需要：${esc(t.capabilityRequirements.slice(0, 3).join(' · '))}</p>` : ''}
-      <div class="row-actions"><button class="btn btn-gold btn-sm claim-btn" data-id="${esc(t.id)}">认领此任务</button></div>
-    </div>`).join('');
-  list.querySelectorAll('.claim-btn').forEach((b) => b.addEventListener('click', () => claimTask(b.dataset.id)));
+/* ---------- 任务大厅 ---------- */
+function filteredTasks() {
+  const kw = $('#f-keyword').value.trim().toLowerCase();
+  const sk = $('#f-skill').value;
+  const bg = $('#f-budget').value;
+  const sort = $('#f-sort').value;
+  let list = tasks.filter((t) => t.status === 'MATCHING_CAPABILITY');
+  if (kw) list = list.filter((t) => (t.goal || '').toLowerCase().includes(kw));
+  if (sk) list = list.filter((t) => (t.requiredSkills || []).includes(sk));
+  if (bg) {
+    const [lo, hi] = bg.split('-').map(Number);
+    list = list.filter((t) => { const b = budgetNum(t.budget); return b >= lo && b < hi; });
+  }
+  list.sort((a, b) => {
+    if (sort === 'budget-desc') return budgetNum(b.budget) - budgetNum(a.budget);
+    if (sort === 'budget-asc') return budgetNum(a.budget) - budgetNum(b.budget);
+    return new Date(b.publishedAt || b.createdAt || 0) - new Date(a.publishedAt || a.createdAt || 0);
+  });
+  return list;
 }
+function taskCardHTML(t) {
+  const [label, cls] = STATUS_META[t.status] || [t.status, 'status-open'];
+  const reqVerified = (t.requiredSkills || []).map((s) => skillBadge(s, false)).join('');
+  return `<div class="task-card" data-id="${esc(t.id)}">
+    <div class="top">
+      <h3>${esc(t.goal || '（无标题）')}</h3>
+      <div class="budget">${esc(fmtBudget(t.budget))}</div>
+    </div>
+    ${reqVerified ? `<div class="skill-badges">${reqVerified}</div>` : ''}
+    <div class="task-meta">
+      <span class="status-pill ${cls}">${label}</span>
+      ${t.deadline ? `<span>⏰ ${esc(t.deadline)}</span>` : ''}
+      <span>🕐 ${esc(fmtTime(t.publishedAt || t.createdAt))}</span>
+    </div>
+  </div>`;
+}
+function renderHall() {
+  const list = filteredTasks();
+  $('#hall-list').innerHTML = list.length
+    ? `<div class="task-grid">${list.map(taskCardHTML).join('')}</div>`
+    : '<div class="empty">没有符合条件的任务，换个筛选试试。</div>';
+  document.querySelectorAll('#hall-list .task-card').forEach((c) =>
+    c.addEventListener('click', () => openTaskDetail(c.dataset.id)));
+}
+['f-keyword', 'f-skill', 'f-budget', 'f-sort'].forEach((id) =>
+  $(`#${id}`).addEventListener('input', renderHall));
+
+/* ---------- 任务详情 ---------- */
+function openTaskDetail(id) {
+  const t = tasks.find((x) => x.id === id); if (!t) return;
+  $('#td-title').textContent = t.goal || '（无标题）';
+  const [label, cls] = STATUS_META[t.status] || [t.status, 'status-open'];
+  const reqSkills = (t.requiredSkills || []).map((s) => {
+    const mine = mySkills.find((ms) => ms.tag === s);
+    return skillBadge(s, mine && mine.verified);
+  }).join('');
+  const criteria = (t.acceptanceCriteria || []).map((c) => `<li>${esc(c)}</li>`).join('');
+  const checklist = (t.checklist || []).map((c) => `<li>${esc(c)}</li>`).join('');
+  const reqs = (t.capabilityRequirements || []).map((c) => `<li>${esc(c)}</li>`).join('');
+  $('#td-body').innerHTML = `
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <span class="status-pill ${cls}">${label}</span>
+      <span class="budget">${esc(fmtBudget(t.budget))}</span>
+      ${t.deadline ? `<span style="font-size:13px;color:var(--faint)">⏰ 截止 ${esc(t.deadline)}</span>` : ''}
+    </div>
+    ${reqSkills ? `<div class="sec"><h4>所需技能</h4><div class="skill-badges">${reqSkills}</div></div>` : ''}
+    ${t.description ? `<div class="sec"><h4>任务描述</h4><p style="font-size:14px;color:var(--muted)">${esc(t.description)}</p></div>` : ''}
+    ${criteria ? `<div class="sec"><h4>验收标准</h4><ul>${criteria}</ul></div>` : ''}
+    ${checklist ? `<div class="sec"><h4>检查清单</h4><ul>${checklist}</ul></div>` : ''}
+    ${reqs ? `<div class="sec"><h4>能力要求</h4><ul>${reqs}</ul></div>` : ''}
+    <div class="boss-card">
+      <div class="avatar">${esc((t.bossDisplayName || t.bossId || '?').slice(0,1))}</div>
+      <div class="binfo">
+        <b>${esc(t.bossDisplayName || '平台老板')}</b>
+        <p>发单 ${t.bossTaskCount ?? '–'} · 好评率 ${t.bossGoodRate ?? '–'}</p>
+      </div>
+    </div>`;
+  const canClaim = me && t.status === 'MATCHING_CAPABILITY' && !(t.assignment && t.assignment.handlerId === me.id);
+  $('#td-claim').hidden = !canClaim;
+  $('#td-claim').onclick = () => claimTask(t.id);
+  $('#task-dialog').showModal();
+}
+$('#td-close').addEventListener('click', () => $('#task-dialog').close());
+$('#td-close2').addEventListener('click', () => $('#task-dialog').close());
 async function claimTask(id) {
-  const btn = document.querySelector(`.claim-btn[data-id="${CSS.escape(id)}"]`);
-  if (btn) btn.disabled = true;
+  const btn = $('#td-claim'); btn.disabled = true; btn.textContent = '认领中…';
   try {
     await api(`/api/human-capability-requests/${encodeURIComponent(id)}/claim-user`, { method: 'POST' });
+    $('#task-dialog').close();
     await refreshAll();
     document.querySelector('.tab[data-tab="mine"]').click();
-  } catch (e) { alert(e.message); if (btn) btn.disabled = false; }
+  } catch (e) { alert(e.message); btn.disabled = false; btn.textContent = '认领此任务'; }
 }
-$('#refresh-open').addEventListener('click', () => loadTasks().then(renderAll));
 
-/* 我的任务 */
+/* ---------- 我的任务 ---------- */
 function renderMine() {
-  const list = $('#mine-list');
-  const mine = tasks.filter((t) => t.assignment && t.assignment.handlerId === me.id && (t.status === 'IN_PROGRESS' || t.status === 'REWORK'));
-  if (!mine.length) { list.innerHTML = '<div class="empty">你还没有进行中的任务，去"可接任务"认领一单吧。</div>'; return; }
-  list.innerHTML = mine.map((t) => {
-    const [label, pill] = MINE_STATUS[t.status] || [t.status, 'pill-dim'];
+  const mine = tasks.filter((t) => t.assignment && t.assignment.handlerId === (me && me.id));
+  let list;
+  if (mineTab === 'active') list = mine.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'REWORK');
+  else if (mineTab === 'review') list = mine.filter((t) => t.status === 'DELIVERED');
+  else list = mine.filter((t) => t.status === 'VERIFIED');
+  if (!list.length) {
+    $('#mine-list').innerHTML = '<div class="empty">' +
+      (mineTab === 'active' ? '没有进行中的任务，去大厅认领一单吧。' : mineTab === 'review' ? '没有待验收的任务。' : '还没有已完成的任务。') + '</div>';
+    return;
+  }
+  $('#mine-list').innerHTML = `<div class="task-grid">${list.map((t) => {
+    const [label, cls] = STATUS_META[t.status] || [t.status, 'status-open'];
     const vf = t.verification;
-    return `<div class="card">
-      <div><span class="pill ${pill}">${label}</span> <span class="pill pill-dim">${esc((t.humanGap || {}).type || '')}</span></div>
-      <h3>${esc(t.goal || '')}</h3>
-      <p class="sub">预算 ${esc(fmtBudget(t.budget))}${t.deadline ? ` · 期限 ${esc(t.deadline)}` : ''}</p>
-      ${t.status === 'REWORK' && vf && vf.reasons && vf.reasons.length ? `<p class="sub" style="color:var(--err);margin-top:8px">打回意见：${esc(vf.reasons.join('；'))}</p>` : ''}
-      ${t.acceptanceCriteria && t.acceptanceCriteria.length ? `<ul>${t.acceptanceCriteria.map((c) => `<li>${CHECK_SVG}<span>${esc(c)}</span></li>`).join('')}</ul>` : ''}
-      <div class="row-actions"><button class="btn btn-gold btn-sm deliver-btn" data-id="${esc(t.id)}">提交交付</button></div>
+    return `<div class="task-card" data-id="${esc(t.id)}">
+      <div class="top"><h3>${esc(t.goal || '')}</h3><div class="budget">${esc(fmtBudget(t.budget))}</div></div>
+      <div class="task-meta"><span class="status-pill ${cls}">${label}</span>
+      ${t.status === 'REWORK' && vf && vf.reasons ? `<span style="color:var(--err)">打回：${esc(vf.reasons.join('；').slice(0,40))}</span>` : ''}</div>
+      ${(t.status === 'IN_PROGRESS' || t.status === 'REWORK') ? `<div><button class="btn btn-primary btn-sm deliver-btn" data-id="${esc(t.id)}">提交交付</button></div>` : ''}
     </div>`;
-  }).join('');
-  list.querySelectorAll('.deliver-btn').forEach((b) => b.addEventListener('click', () => openDeliver(b.dataset.id)));
+  }).join('')}</div>`;
+  document.querySelectorAll('#mine-list .task-card').forEach((c) =>
+    c.addEventListener('click', (e) => { if (!e.target.closest('.deliver-btn')) openTaskDetail(c.dataset.id); }));
+  document.querySelectorAll('#mine-list .deliver-btn').forEach((b) =>
+    b.addEventListener('click', (e) => { e.stopPropagation(); openDeliver(b.dataset.id); }));
 }
-$('#refresh-mine').addEventListener('click', () => loadTasks().then(renderAll));
 
-/* 交付 */
+/* ---------- 交付 ---------- */
 function openDeliver(id) {
   const t = tasks.find((x) => x.id === id); if (!t) return;
   $('#deliver-goal').textContent = t.goal || '';
@@ -366,47 +580,106 @@ $('#deliver-dialog [value="cancel"]').addEventListener('click', (e) => { e.preve
 $('#deliver-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const id = $('#deliver-form').dataset.id;
-  const notice = $('#deliver-notice'); notice.className = 'notice'; notice.textContent = '提交中…';
+  const n = $('#deliver-notice'); n.className = 'notice'; n.textContent = '提交中…';
   const payload = {
     summary: $('#deliver-summary').value.trim(),
     artifacts: lines($('#deliver-artifacts').value),
     evidence: lines($('#deliver-evidence').value),
     acceptance_notes: $('#deliver-notes').value.trim()
   };
-  if (!payload.artifacts.length && !payload.evidence.length) {
-    notice.className = 'notice error'; notice.textContent = '交付物或佐证至少填一项'; return;
-  }
+  if (!payload.summary) { n.className = 'notice error'; n.textContent = '请填写交付说明'; return; }
+  if (!payload.artifacts.length && !payload.evidence.length) { n.className = 'notice error'; n.textContent = '交付物或佐证至少填一项'; return; }
   try {
     await api(`/api/human-capability-requests/${encodeURIComponent(id)}/deliver-user`, { method: 'POST', body: JSON.stringify(payload) });
-    notice.textContent = '交付成功，等待工头验收。';
+    n.className = 'notice ok'; n.textContent = '交付成功，等待验收。';
     setTimeout(() => { $('#deliver-dialog').close(); refreshAll(); }, 900);
-  } catch (err) { notice.className = 'notice error'; notice.textContent = err.message; }
+  } catch (err) { n.className = 'notice error'; n.textContent = err.message; }
 });
 
-/* 可靠分 */
-async function loadScore() {
+/* ---------- 我的收入 ---------- */
+async function renderIncome() {
   try {
-    const data = await api('/api/auth/me');
-    const x = data.user || {};
-    const score = x.reliabilityScore ?? 100;
-    $('#score-num').textContent = score;
-    $('#score-num').style.color = score >= 100 ? 'var(--ice)' : score >= 80 ? 'var(--gold)' : 'var(--err)';
-    $('#score-desc').textContent = `累计完成 ${x.completedTasks ?? 0} 单 · 打回 ${x.rejectedTasks ?? 0} 单`;
-    $('#me-score').textContent = `可靠分 ${score}`;
-  } catch (e) { $('#score-desc').textContent = `读取失败：${e.message}`; }
+    const d = await api('/internal/ledger').catch(() => null);
+    let total = 0, month = 0, pending = 0;
+    const now = new Date(); const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    if (d && d.entries) {
+      const mine = d.entries.filter((e) => e.to === `executor:${me.id}` && e.type === 'SETTLE');
+      total = mine.reduce((s, e) => s + (e.amount || 0), 0);
+      month = mine.filter((e) => new Date(e.at) >= monthStart).reduce((s, e) => s + (e.amount || 0), 0);
+    }
+    pending = tasks.filter((t) => t.assignment && t.assignment.handlerId === me.id && t.status === 'DELIVERED')
+      .reduce((s, t) => s + (t.frozenAmount || budgetNum(t.budget) || 0), 0);
+    $('#inc-total').textContent = total;
+    $('#inc-month').textContent = month;
+    $('#inc-pending').textContent = pending;
+    const done = tasks.filter((t) => t.assignment && t.assignment.handlerId === me.id && t.status === 'VERIFIED')
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)).slice(0, 10);
+    $('#income-list').innerHTML = done.length
+      ? done.map((t) => `<div class="skill-row"><div class="info"><b>${esc(t.goal || '')}</b><p>${esc(fmtTime(t.updatedAt))}</p></div><b style="color:var(--grape)">+${t.frozenAmount || budgetNum(t.budget) || 0}</b></div>`).join('')
+      : '<div class="empty">还没有结算记录，完成任务后积分会记在这里。</div>';
+  } catch (e) { $('#income-list').innerHTML = `<div class="empty">读取失败：${esc(e.message)}</div>`; }
 }
 
-/* 加载 */
+/* ---------- 我的技能 ---------- */
+async function loadMySkills() {
+  if (!me) return;
+  try {
+    const d = await api(`/api/executors/${encodeURIComponent(me.id)}/skills`);
+    mySkills = d.skills || [];
+  } catch { mySkills = []; }
+}
+function renderSkills() {
+  const rows = skillTags.map((tag) => {
+    const s = mySkills.find((x) => x.tag === tag.tag);
+    let status, action;
+    if (s && s.verified) {
+      status = `<span class="skill-badge verified">已认证 Lv.${s.level}</span>`;
+      action = '';
+    } else if (s && s.source === 'task') {
+      status = `<span class="skill-badge">实战积累 Lv.${s.level}</span>`;
+      action = '<span style="font-size:13px;color:var(--faint)">通过测评可转认证</span>';
+    } else if (s) {
+      status = `<span class="skill-badge">已自报 Lv.${s.level}</span>`;
+      action = '<span style="font-size:13px;color:var(--faint)">通过测评可转认证</span>';
+    } else {
+      status = '<span style="font-size:13px;color:var(--faint)">未申报</span>';
+      action = '';
+    }
+    return `<div class="skill-row"><div class="info"><b>${esc(tag.name)}</b><p>${esc(tag.description)}</p></div>${status}<div>${action}</div></div>`;
+  }).join('');
+  $('#skills-list').innerHTML = rows || '<div class="empty">加载中…</div>';
+}
+$('#self-skill-submit').addEventListener('click', async () => {
+  const n = $('#self-skill-notice'); n.className = 'notice'; n.textContent = '申报中…';
+  try {
+    await api('/api/executors/me/skills', { method: 'POST', body: JSON.stringify({ tag: $('#self-skill-tag').value, level: Number($('#self-skill-level').value) }) });
+    n.className = 'notice ok'; n.textContent = '申报成功';
+    await loadMySkills(); renderSkills();
+  } catch (e) { n.className = 'notice error'; n.textContent = e.message; }
+});
+
+/* ---------- 数据加载 ---------- */
 async function loadTasks() {
   try {
-    const [openData, mineData] = await Promise.all([api('/api/human-capability-requests/open'), api('/api/human-capability-requests/mine')]);
+    const [openData, mineData] = await Promise.all([
+      api('/api/human-capability-requests/open'),
+      api('/api/human-capability-requests/mine')
+    ]);
     const seen = new Set();
-    tasks = [...(openData.requests || []), ...(mineData.requests || [])].filter((t) => !seen.has(t.id) && (seen.add(t.id), true));
+    tasks = [...(openData.requests || []), ...(mineData.requests || [])]
+      .filter((t) => !seen.has(t.id) && (seen.add(t.id), true));
+  } catch (e) {
+    tasks = [];
+    $('#hall-list').innerHTML = `<div class="empty">读取失败：${esc(e.message)}</div>`;
   }
-  catch (e) { tasks = []; $('#open-list').innerHTML = `<div class="empty">读取失败：${esc(e.message)}</div>`; }
 }
-function renderAll() { renderOpen(); renderMine(); }
-async function refreshAll() { await loadTasks(); renderAll(); await loadScore(); }
+async function refreshAll() {
+  await loadSkillTags();
+  await loadMySkills();
+  await loadTasks();
+  renderHall(); renderMine(); renderSkills();
+}
+loadSkillTags().then(renderHall);
 </script>
 </body>
 </html>

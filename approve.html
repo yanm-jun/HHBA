@@ -6,117 +6,87 @@
 <title>HHBA · 人工审批（例外路径）</title>
 <meta name="description" content="HHBA 人工审批：只有超预算或未命中策略的任务需要你确认，规则内任务由策略自动审批。">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
 :root{
-  --neon:#B2FC06;
-  --grape:#8A3BEC;
-  --ink:#2B0A4E;
-  --gold:#8A3BEC;
-  --ice:#8A3BEC;
-  --bg:#B2FC06;
-  --panel:#FFFFFF;
-  --panel-2:#F0FFC4;
-  --text:#2B0A4E;
-  --muted:rgba(43,10,78,.72);
-  --faint:rgba(43,10,78,.50);
-  --border:rgba(138,59,236,.40);
-  --border-soft:rgba(43,10,78,.14);
-  --shadow:0 32px 80px rgba(43,10,78,.18);
-  --radius-md:20px; --radius-sm:12px;
+  --neon:#B2FC06; --grape:#8A3BEC; --ink:#1A0B2E;
+  --bg:#FAFAF7; --card:#FFFFFF; --text:#1A0B2E;
+  --muted:#5C5470; --faint:#8A8398; --border:#E8E4F0;
+  --radius:16px; --err:#D64545; --ok:#2E9E5B;
 }
 *{margin:0;padding:0;box-sizing:border-box}
-body{
-  background:var(--bg); color:var(--text);
-  font-family:'Fira Sans',-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
-  line-height:1.7; min-height:100vh;
-  background-image:radial-gradient(800px 420px at 50% -6%, rgba(178,252,6,.06), transparent 60%);
-}
-h1,h2,h3,.mono{font-family:'Fira Code','Fira Sans',"PingFang SC","Microsoft YaHei",monospace; line-height:1.35}
-a{color:var(--ice); text-decoration:none}
+html{scroll-behavior:smooth}
+body{background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  line-height:1.7; min-height:100vh}
+a{color:var(--grape); text-decoration:none}
 .wrap{max-width:720px; margin:0 auto; padding:0 24px}
-.nav{padding:20px 0}
-.nav a{font-size:14px; display:inline-flex; align-items:center; gap:6px}
-.page-head{padding:24px 0 8px}
-.page-head h1{font-size:clamp(26px,4vw,36px); margin-bottom:10px}
-.page-head h1 .hl{color:var(--gold)}
+/* nav */
+.nav{position:sticky; top:0; z-index:50; background:rgba(250,250,247,.92); backdrop-filter:blur(12px); border-bottom:1px solid var(--border)}
+.nav-inner{display:flex; align-items:center; justify-content:space-between; height:64px}
+.brand{display:flex; align-items:center; gap:10px; font-weight:800; font-size:20px; color:var(--text)}
+.brand:hover{text-decoration:none}
+.brand-mark{width:32px; height:32px; border-radius:10px; background:var(--grape); color:#fff; display:grid; place-items:center; font-size:16px; font-weight:800}
+.nav-links{display:flex; gap:28px; font-size:15px}
+.nav-links a{color:var(--muted)}
+.nav-links a:hover{color:var(--text)}
+@media(max-width:720px){.nav-links{display:none}}
+.page-head{padding:40px 0 8px}
+.page-head h1{font-size:clamp(26px,4vw,36px); font-weight:800; letter-spacing:-.01em; margin-bottom:10px}
+.page-head h1 .hl{color:var(--grape)}
 .page-head p{color:var(--muted); font-size:16px; max-width:38em}
-
-.notice{
-  margin:28px 0; padding:20px 22px; border-radius:var(--radius-sm);
-  background:rgba(178,252,6,.06); border:1px solid rgba(178,252,6,.30);
-  font-size:14px; color:var(--muted); display:flex; gap:12px; align-items:flex-start;
-}
-.notice svg{width:20px; height:20px; stroke:var(--gold); flex:none; margin-top:3px}
+.notice{margin:28px 0; padding:20px 22px; border-radius:12px; background:rgba(138,59,236,.06); border:1px solid rgba(138,59,236,.2); font-size:14px; color:var(--muted); display:flex; gap:12px; align-items:flex-start}
+.notice svg{width:20px; height:20px; stroke:var(--grape); flex:none; margin-top:3px}
 .notice strong{color:var(--text)}
-
-.card{
-  background:linear-gradient(180deg,var(--panel-2),var(--panel));
-  border:1px solid var(--border); border-radius:var(--radius-md);
-  box-shadow:var(--shadow); padding:36px 32px; margin-bottom:64px;
-}
+.card{background:var(--card); border:1px solid var(--border); border-radius:20px; box-shadow:0 8px 32px rgba(138,59,236,.06); padding:36px 32px; margin-bottom:64px}
 @media(max-width:560px){.card{padding:26px 20px}}
-.card h2{font-size:20px; margin-bottom:6px}
-.card .eyebrow{font-family:'Fira Code',monospace; font-size:12px; letter-spacing:.14em; color:var(--ice); display:block; margin-bottom:10px}
-
-label.f-label{display:block; font-size:14px; font-weight:600; margin:22px 0 8px}
-textarea.f-field, input.f-field{
-  width:100%; padding:12px 16px; border-radius:8px; font-size:15px;
-  background:rgba(20,4,40,.6); border:1px solid var(--border-soft); color:var(--text);
-  font-family:'Fira Sans',"PingFang SC",sans-serif; transition:border-color 200ms ease;
-}
-textarea.f-field:focus, input.f-field:focus{border-color:var(--ice); outline:none; box-shadow:0 0 0 3px rgba(178,252,6,.15)}
+.card h2{font-size:20px; font-weight:800; margin-bottom:6px}
+.card .eyebrow{font-size:12px; letter-spacing:.12em; color:var(--grape); font-weight:600; display:block; margin-bottom:10px}
+label.f-label{display:block; font-size:14px; font-weight:600; margin:22px 0 8px; color:var(--text)}
+textarea.f-field, input.f-field{width:100%; padding:12px 16px; border-radius:10px; font-size:15px; background:var(--bg); border:1.5px solid var(--border); color:var(--text); transition:border-color .15s}
+textarea.f-field:focus, input.f-field:focus{border-color:var(--grape); outline:none; box-shadow:0 0 0 3px rgba(138,59,236,.1)}
 .f-note{font-size:13px; color:var(--faint); margin:14px 0 20px}
-
-.btn{display:inline-flex; align-items:center; gap:8px; padding:12px 24px; border-radius:8px; font-weight:600; font-size:15px; cursor:pointer; border:none; transition:all 200ms ease; font-family:'Fira Sans',"PingFang SC",sans-serif}
+.btn{display:inline-flex; align-items:center; gap:8px; padding:12px 24px; border-radius:12px; font-weight:600; font-size:15px; cursor:pointer; border:none; transition:all .18s ease}
 .btn:disabled{opacity:.45; cursor:not-allowed; transform:none}
-.btn-gold{background:var(--gold); color:#2B0A4E}
-.btn-gold:hover:not(:disabled){opacity:.9; transform:translateY(-1px)}
-.btn-ghost{background:transparent; color:var(--ice); border:2px solid var(--ice)}
-.btn-ghost:hover:not(:disabled){background:rgba(178,252,6,.08); transform:translateY(-1px)}
+.btn-gold{background:var(--grape); color:#fff}
+.btn-gold:hover:not(:disabled){background:#7A2FD6; transform:translateY(-1px)}
+.btn-ghost{background:transparent; color:var(--grape); border:2px solid var(--grape)}
+.btn-ghost:hover:not(:disabled){background:rgba(138,59,236,.06)}
 .btn-row{display:flex; gap:12px; flex-wrap:wrap; margin-top:18px}
-
-.stage{display:none; margin-top:28px; padding-top:28px; border-top:1px solid var(--border-soft)}
+.stage{display:none; margin-top:28px; padding-top:28px; border-top:1px solid var(--border)}
 .stage.show{display:block; animation:fadein 300ms ease}
 @keyframes fadein{from{opacity:0; transform:translateY(8px)}to{opacity:1; transform:none}}
-.stage h3{font-size:17px; margin-bottom:14px}
+.stage h3{font-size:17px; font-weight:700; margin-bottom:14px}
 .metrics{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:6px}
 @media(max-width:560px){.metrics{grid-template-columns:1fr}}
-.metric{background:rgba(20,4,40,.55); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:12px 14px; font-size:13px; color:var(--muted)}
+.metric{background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:12px 14px; font-size:13px; color:var(--muted)}
 .metric strong{display:block; color:var(--text); font-size:15px; margin-top:2px}
-
-.aa-hint{margin:16px 0; padding:16px 18px; border-radius:var(--radius-sm); font-size:14px; display:flex; gap:10px; align-items:flex-start}
+.aa-hint{margin:16px 0; padding:16px 18px; border-radius:12px; font-size:14px; display:flex; gap:10px; align-items:flex-start}
 .aa-hint svg{width:18px; height:18px; flex:none; margin-top:3px}
-.aa-hint.ok{background:rgba(178,252,6,.07); border:1px solid var(--border); color:var(--muted)}
-.aa-hint.ok svg{stroke:var(--ice)}
-.aa-hint.no{background:rgba(178,252,6,.06); border:1px solid rgba(178,252,6,.30); color:var(--muted)}
-.aa-hint.no svg{stroke:var(--gold)}
+.aa-hint.ok{background:rgba(178,252,6,.12); border:1px solid rgba(138,59,236,.25); color:var(--muted)}
+.aa-hint.ok svg{stroke:var(--grape)}
+.aa-hint.no{background:rgba(138,59,236,.06); border:1px solid rgba(138,59,236,.2); color:var(--muted)}
+.aa-hint.no svg{stroke:var(--grape)}
 .aa-hint strong{color:var(--text)}
-
 .consent-row{display:flex; gap:12px; align-items:flex-start; font-size:14px; color:var(--muted); margin:6px 0 4px; cursor:pointer}
-.consent-row input{width:18px; height:18px; margin-top:4px; accent-color:var(--gold); cursor:pointer; flex:none}
+.consent-row input{width:18px; height:18px; margin-top:4px; accent-color:var(--grape); cursor:pointer; flex:none}
 .result{font-size:15px; line-height:1.8}
 .result.show{display:block}
-.result .ok-big{color:var(--ice); font-weight:600}
+.result .ok-big{color:var(--ok); font-weight:700}
 footer{padding:28px 0 40px; font-size:12px; color:var(--faint); text-align:center}
 @media (prefers-reduced-motion: reduce){.stage.show{animation:none}}
-
-/* ===== v0.4 retheme: 荧光绿底 × 绮菫紫字 ===== */
-body{background-image:radial-gradient(800px 420px at 50% -6%, rgba(138,59,236,.14), transparent 60%)}
-::selection{background:var(--grape); color:#ffffff}
-.notice{background:rgba(138,59,236,.08); border-color:rgba(138,59,236,.35)}
-textarea.f-field, input.f-field{background:#ffffff; color:var(--ink)}
-textarea.f-field:focus, input.f-field:focus{border-color:var(--grape); box-shadow:0 0 0 3px rgba(138,59,236,.15)}
-.btn-gold{color:#ffffff}
-.btn-ghost:hover{background:rgba(138,59,236,.08)}
-.metric{background:rgba(138,59,236,.06)}
-.aa-hint.ok{background:#ffffff}
-.aa-hint.no{background:rgba(138,59,236,.08); border-color:rgba(138,59,236,.40)}
-@media(max-width:640px){.nav .pill{display:none}}</style>
+</style>
 </head>
 <body>
 
 <div class="wrap">
-  <nav class="nav"><a href="index.html">← 返回首页</a></nav>
+  <nav class="nav"><div class="wrap nav-inner">
+  <a class="brand" href="index.html"><span class="brand-mark">H</span>HHBA</a>
+  <div class="nav-links">
+    <a href="tasks.html">任务大厅</a>
+    <a href="approve.html">发单</a>
+    <a href="docs.html">开发者文档</a>
+  </div>
+  <span style="font-size:13px;color:var(--faint)">人工审批</span>
+</div></nav>
 
   <div class="page-head">
     <h1>人工审批 <span class="hl">· 例外路径</span></h1>
