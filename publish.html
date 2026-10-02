@@ -106,11 +106,26 @@ textarea{resize:vertical; min-height:110px}
 .login-wall .card{padding:48px 36px}
 footer{border-top:1px solid var(--border); padding:28px 0; margin-top:40px; font-size:13px; color:var(--faint); text-align:center}
 .hidden{display:none !important}
+
+/* 汉堡菜单（移动端） */
+.nav-toggle{display:none; background:none; border:none; font-size:22px; cursor:pointer; color:var(--grape); padding:8px; line-height:1}
+.nav-mobile{display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border-bottom:1px solid var(--border); box-shadow:0 8px 24px rgba(0,0,0,.08); z-index:60; padding:8px 0}
+.nav-mobile.open{display:block}
+.nav-mobile a{display:block; padding:12px 24px; font-size:15px; color:var(--ink); text-decoration:none}
+.nav-mobile a:hover,.nav-mobile a:active{background:rgba(138,59,236,.06); color:var(--grape)}
+.nav{position:relative}
+@media(max-width:720px){.nav-toggle{display:block}.nav-inner>.btn{display:none}}
 </style>
 </head>
 <body>
 <nav class="nav"><div class="wrap nav-inner">
   <a class="brand" href="index.html"><span class="brand-mark">H</span>HHBA</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="菜单">☰</button>
+    <div class="nav-mobile" id="nav-mobile">
+      <a href="tasks.html">任务大厅</a>
+      <a href="publish.html">发单</a>
+      <a href="docs.html">开发者文档</a>
+    </div>
   <div class="nav-links">
     <a href="tasks.html">任务大厅</a>
     <a href="publish.html" class="active">发单</a>
@@ -216,7 +231,9 @@ async function api(path, init = {}) {
 function esc(s) { return String(s ?? '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '&gt;': '&gt;', '\"': '&quot;', "'": '&#39;' }[c])); }
 
 const TPL_IMGS = { tpl_h5_walkthrough: 'assets/tpl-h5.webp', tpl_miniprogram_smoke: 'assets/tpl-miniprogram.webp', tpl_sandbox_payment: 'assets/tpl-payment.webp' };
-const state = { step: 1, templates: [], skillTags: [], tpl: null, custom: false, balance: 0, skills: [] };
+const state = { step: 1, templates: [], skillTags: [], tpl: null, custom: false, balance: 0, skills: [],
+  preferredExecutor: new URLSearchParams(location.search).get('executor') || null,
+  preferredExecutorName: null };
 
 function setStep(n) {
   state.step = n;
@@ -249,6 +266,13 @@ async function init() {
   renderTemplates(); renderSkills();
   $('#balance-amt').textContent = balRes ? balRes.balance + ' 分' : '—';
   $('#balance-escrow').textContent = balRes ? '冻结中 ' + balRes.escrow + ' 分' : '';
+  // 如果 URL 带 executor 参数，获取执行者昵称
+  if (state.preferredExecutor) {
+    try {
+      const rep = await api('/api/executors/' + encodeURIComponent(state.preferredExecutor) + '/reputation').catch(() => null);
+      if (rep) state.preferredExecutorName = rep.displayName || state.preferredExecutor;
+    } catch {}
+  }
   setStep(1);
 }
 
@@ -354,7 +378,8 @@ function renderReview() {
     <div class="review-row"><span class="k">验收标准</span><span class="v">${crits.length} 条</span></div>
     <div class="review-row"><span class="k">截止时间</span><span class="v">${esc($('#f-deadline').value.replace('T', ' '))}</span></div>
     <div class="review-row"><span class="k">所需技能</span><span class="v">${esc(skillNames.join('、') || '无')}</span></div>
-    <div class="review-row"><span class="k">预算</span><span class="v" style="color:var(--grape);font-weight:700">${esc($('#f-budget').value)} 积分</span></div>`;
+    <div class="review-row"><span class="k">预算</span><span class="v" style="color:var(--grape);font-weight:700">${esc($('#f-budget').value)} 积分</span></div>
+    ${state.preferredExecutor ? `<div class="review-row"><span class="k">指定执行者</span><span class="v">${esc(state.preferredExecutorName || state.preferredExecutor)}</span></div>` : ''}`;
 }
 
 async function doPublish() {
@@ -370,13 +395,15 @@ async function doPublish() {
     if (!state.custom && state.tpl) {
       draft = await api('/api/human-capability-requests/from-template', { method: 'POST',
         body: JSON.stringify({ templateId: state.tpl.id, goal, budget, deadline,
-          humanGapReason: desc, acceptanceCriteria: crits, requiredSkills: state.skills }) });
+          humanGapReason: desc, acceptanceCriteria: crits, requiredSkills: state.skills,
+          preferredExecutor: state.preferredExecutor }) });
     } else {
       draft = await api('/api/human-capability-requests/draft', { method: 'POST',
         body: JSON.stringify({ goal, foreman: { tool: 'hhba-web-manual' },
           human_gap: { type: 'DIGITAL_EXECUTION', reason: desc },
           capability_requirements: ['拥有可正常上网的真实手机', '能按检查清单验证并截图'],
-          acceptance_criteria: crits, budget, deadline, requiredSkills: state.skills }) });
+          acceptance_criteria: crits, budget, deadline, requiredSkills: state.skills,
+          preferredExecutor: state.preferredExecutor }) });
     }
     if (draft.budgetWarning) notice.textContent = '提示：' + draft.budgetWarning;
     // 发布
@@ -415,6 +442,16 @@ $('#btn-next').onclick = async () => {
 $('#btn-prev').onclick = () => { if (state.step > 1) setStep(state.step - 1); };
 
 init();
+</script>
+
+<script>
+(function(){
+  var t = document.getElementById('nav-toggle');
+  var m = document.getElementById('nav-mobile');
+  if (!t || !m) return;
+  t.addEventListener('click', function(e){ e.stopPropagation(); m.classList.toggle('open'); });
+  document.addEventListener('click', function(e){ if (!m.contains(e.target)) m.classList.remove('open'); });
+})();
 </script>
 </body>
 </html>
