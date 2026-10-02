@@ -158,6 +158,7 @@ dialog::backdrop{background:rgba(43,10,78,.70)}
       <button class="tab" data-tab="policies">策略管理</button>
       <button class="tab" data-tab="ledger">积分账本</button>
       <button class="tab" data-tab="executors">执行者</button>
+      <button class="tab" data-tab="assess">能力测评</button>
       <button class="tab" data-tab="notify">通知设置</button>
     </div>
 
@@ -215,6 +216,36 @@ dialog::backdrop{background:rgba(43,10,78,.70)}
         <div><label class="f" for="upsert-score">可靠分（0–120，留空不改）</label><input type="number" id="upsert-score" min="0" max="120" placeholder="100"></div>
         <div class="row-actions"><button class="btn btn-ghost btn-sm" id="upsert-btn">保存</button><span class="notice" id="upsert-notice"></span></div>
       </details>
+    </section>
+
+    <section id="tab-assess" hidden>
+      <h3 class="sec-title"><span class="kicker">SKILLS</span>技能标签</h3>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>标签</th><th>名称</th><th>说明</th><th>对应模板</th></tr></thead><tbody id="skill-tag-rows"><tr><td colspan="4" style="color:var(--faint)">加载中…</td></tr></tbody></table></div>
+
+      <h3 class="sec-title" style="margin-top:28px"><span class="kicker">NEW</span>创建测评任务</h3>
+      <div class="box">
+        <div class="grid2">
+          <div><label class="f" for="asm-skill">技能标签 *</label><select id="asm-skill"></select></div>
+          <div><label class="f" for="asm-budget">预算（积分，可空）</label><input type="text" id="asm-budget" placeholder="例如 30积分"></div>
+        </div>
+        <div><label class="f" for="asm-title">测评标题</label><input type="text" id="asm-title" placeholder="留空则自动生成"></div>
+        <div><label class="f" for="asm-desc">测评说明</label><textarea id="asm-desc" rows="2" placeholder="测评背景、要求…"></textarea></div>
+        <div><label class="f" for="asm-checklist">检查清单（每行一项）</label><textarea id="asm-checklist" rows="3" placeholder="打开指定页面&#10;按清单逐项截图&#10;提交走查报告"></textarea></div>
+        <div class="row-actions"><button class="btn btn-gold btn-sm" id="asm-create">创建测评</button><span class="notice" id="asm-notice"></span></div>
+      </div>
+
+      <h3 class="sec-title" style="margin-top:28px"><span class="kicker">LIST</span>测评任务</h3>
+      <div class="toolbar"><div class="spacer"></div><button class="btn btn-ghost btn-sm" id="refresh-assess">刷新</button></div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>测评</th><th>技能</th><th>状态</th><th>执行者</th><th>打分</th><th>操作</th></tr></thead><tbody id="assess-rows"><tr><td colspan="6" style="color:var(--faint)">加载中…</td></tr></tbody></table></div>
+
+      <h3 class="sec-title" style="margin-top:28px"><span class="kicker">PROFILE</span>执行者能力画像</h3>
+      <div class="box">
+        <div class="grid2">
+          <div><label class="f" for="prof-exec-id">执行者 ID</label><input type="text" id="prof-exec-id" placeholder="例如 w001"></div>
+          <div style="display:flex;align-items:flex-end"><button class="btn btn-ghost btn-sm" id="prof-query">查询</button></div>
+        </div>
+        <div id="prof-result" style="margin-top:12px"></div>
+      </div>
     </section>
 
     <section id="tab-notify" hidden>
@@ -345,7 +376,7 @@ $('#logout').addEventListener('click', () => location.reload());
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach((x) => x.classList.remove('active'));
   t.classList.add('active');
-  ['tasks', 'policies', 'ledger', 'executors', 'notify'].forEach((k) => { $(`#tab-${k}`).hidden = t.dataset.tab !== k; });
+  ['tasks', 'policies', 'ledger', 'executors', 'assess', 'notify'].forEach((k) => { $(`#tab-${k}`).hidden = t.dataset.tab !== k; });
 }));
 
 /* ---------- Tab 1: 任务流水线 ---------- */
@@ -576,7 +607,100 @@ async function loadExecutors() {
 $('#refresh-executors').addEventListener('click', loadExecutors);
 $('#exec-search').addEventListener('input', renderExecutors);
 
-/* ---------- Tab 5: 通知设置(QQ 邮箱 SMTP) ---------- */
+/* ---------- Tab 5: 能力测评 ---------- */
+let skillTags = [];
+async function loadSkillTags() {
+  try {
+    const data = await fetch('/api/skill-tags').then((r) => r.json());
+    skillTags = data.tags || [];
+    $('#skill-tag-rows').innerHTML = skillTags.map((t) =>
+      `<tr><td class="mono-sm">${esc(t.tag)}</td><td>${esc(t.name)}</td><td>${esc(t.description)}</td><td class="mono-sm">${esc(t.templateId)}</td></tr>`).join('')
+      || '<tr><td colspan="4" style="color:var(--faint)">暂无</td></tr>';
+    $('#asm-skill').innerHTML = skillTags.map((t) => `<option value="${esc(t.tag)}">${esc(t.name)}</option>`).join('');
+  } catch (e) { $('#skill-tag-rows').innerHTML = `<tr><td colspan="4" style="color:var(--err)">读取失败：${esc(e.message)}</td></tr>`; }
+}
+async function loadAssessments() {
+  try {
+    const data = await api('/internal/assessments');
+    const rows = (data.assessments || []).map((a) => {
+      const tag = skillTags.find((t) => t.tag === a.skillTag);
+      const g = a.grade;
+      const gradeHtml = g
+        ? `<span style="color:${g.passed ? 'var(--ok)' : 'var(--err)'}">${g.passed ? '✓' : '✗'} ${g.score}分</span>`
+        : '<span style="color:var(--faint)">未打分</span>';
+      const canGrade = a.status !== 'GRADED';
+      return `<tr>
+        <td><span class="mono-sm">${esc(a.id)}</span><br><span style="font-size:12.5px">${esc(a.title)}</span></td>
+        <td>${esc(tag ? tag.name : a.skillTag)}</td>
+        <td>${esc(a.status)}</td>
+        <td class="mono-sm">${esc(a.taskId || '')}</td>
+        <td>${gradeHtml}</td>
+        <td>${canGrade ? `<button class="btn btn-ghost btn-sm" data-grade="${esc(a.id)}">打分</button>` : ''}</td>
+      </tr>`;
+    }).join('');
+    $('#assess-rows').innerHTML = rows || '<tr><td colspan="6" style="color:var(--faint)">暂无测评任务</td></tr>';
+    document.querySelectorAll('[data-grade]').forEach((b) => b.addEventListener('click', () => gradeDialog(b.dataset.grade)));
+  } catch (e) { $('#assess-rows').innerHTML = `<tr><td colspan="6" style="color:var(--err)">读取失败：${esc(e.message)}</td></tr>`; }
+}
+async function gradeDialog(asmId) {
+  const scoreStr = prompt('打分（1-5 整数）：', '4');
+  if (scoreStr == null) return;
+  const score = Number(scoreStr);
+  if (!Number.isInteger(score) || score < 1 || score > 5) { alert('分数必须是 1-5 的整数'); return; }
+  const passed = confirm('是否通过认证？\n确定=通过，取消=不通过');
+  const feedback = prompt('评语（可选）：', '') || '';
+  try {
+    const data = await api(`/internal/assessments/${encodeURIComponent(asmId)}/grade`, {
+      method: 'POST', body: JSON.stringify({ score, passed, feedback }),
+    });
+    alert(passed ? `已认证：${data.executorId} 获得 ${data.skill.tag} Lv.${data.skill.level}` : '已记录：未通过');
+    loadAssessments();
+  } catch (e) { alert(`打分失败：${e.message}`); }
+}
+$('#asm-create').addEventListener('click', async () => {
+  const notice = $('#asm-notice'); notice.className = 'notice'; notice.textContent = '创建中…';
+  try {
+    const checklist = $('#asm-checklist').value.split('\n').map((s) => s.trim()).filter(Boolean);
+    const data = await api('/internal/assessments', {
+      method: 'POST',
+      body: JSON.stringify({
+        skillTag: $('#asm-skill').value,
+        title: $('#asm-title').value.trim() || undefined,
+        description: $('#asm-desc').value.trim() || undefined,
+        checklist,
+        budget: $('#asm-budget').value.trim() || undefined,
+      }),
+    });
+    notice.className = 'notice'; notice.textContent = `已创建 ${data.assessment.id}（任务 ${data.taskId}）`;
+    $('#asm-title').value = ''; $('#asm-desc').value = ''; $('#asm-checklist').value = ''; $('#asm-budget').value = '';
+    loadAssessments();
+  } catch (e) { notice.className = 'notice error'; notice.textContent = `创建失败：${e.message}`; }
+});
+$('#refresh-assess').addEventListener('click', loadAssessments);
+$('#prof-query').addEventListener('click', async () => {
+  const id = $('#prof-exec-id').value.trim();
+  const box = $('#prof-result');
+  if (!id) { box.innerHTML = '<span style="color:var(--faint)">请输入执行者 ID</span>'; return; }
+  box.innerHTML = '查询中…';
+  try {
+    const p = await fetch(`/api/executors/${encodeURIComponent(id)}/skills`).then((r) => {
+      if (!r.ok) throw new Error(r.status === 404 ? '执行者不存在' : `HTTP ${r.status}`);
+      return r.json();
+    });
+    const rows = (p.skills || []).map((s) =>
+      `<tr><td>${esc(s.name)}</td><td class="mono-sm">${esc(s.tag)}</td><td>Lv.${s.level}</td>` +
+      `<td>${s.verified ? '<span style="color:var(--ok)">✓ 已认证</span>' : '<span style="color:var(--faint)">未认证</span>'}</td>` +
+      `<td>${esc({ self: '自报', assessment: '测评', task: '实战' }[s.source] || s.source)}</td></tr>`).join('');
+    box.innerHTML =
+      `<p><strong>${esc(p.displayName || p.executorId)}</strong> <span class="mono-sm" style="color:var(--faint)">${esc(p.executorId)}</span> · 可靠分 ${p.reliabilityScore}</p>` +
+      (rows
+        ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>技能</th><th>标签</th><th>等级</th><th>认证</th><th>来源</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : '<p style="color:var(--faint)">暂无技能记录</p>');
+  } catch (e) { box.innerHTML = `<span style="color:var(--err)">${esc(e.message)}</span>`; }
+});
+document.querySelector('.tab[data-tab="assess"]').addEventListener('click', () => { loadSkillTags(); loadAssessments(); });
+
+/* ---------- Tab 6: 通知设置(QQ 邮箱 SMTP) ---------- */
 async function loadSmtp() {
   const status = $('#smtp-status'), notice = $('#smtp-notice');
   try {

@@ -473,6 +473,70 @@ function adjustReliability(id, delta) {
   return executor.reliabilityScore;
 }
 
+// ---- v1.2 真实能力测评:执行者能力画像 ----
+// 内置技能标签,与三个任务模板一一对应
+const SKILL_TAGS = {
+  h5_walkthrough: { tag: 'h5_walkthrough', name: 'H5/落地页真机走查', description: '在真实手机上按检查清单走查页面并截图回传', templateId: 'tpl_h5_walkthrough' },
+  miniprogram_smoke: { tag: 'miniprogram_smoke', name: '小程序/App 冒烟测试', description: '按用例在真机上跑核心流程并记录问题', templateId: 'tpl_miniprogram_smoke' },
+  sandbox_payment: { tag: 'sandbox_payment', name: '沙箱表单/支付链路验证', description: '在沙箱环境走完表单到支付全链路', templateId: 'tpl_sandbox_payment' },
+};
+const SKILL_SOURCES = ['self', 'assessment', 'task']; // 自报 / 测评认证 / 实战积累
+// 确保执行者有 skills 数组(向后兼容:老执行者自动初始化)
+function ensureExecutorSkills(executor) {
+  if (!Array.isArray(executor.skills)) executor.skills = [];
+  return executor.skills;
+}
+// 获取或创建某技能记录
+function getExecutorSkill(executor, tag) {
+  ensureExecutorSkills(executor);
+  let skill = executor.skills.find((s) => s.tag === tag);
+  if (!skill) {
+    skill = { tag, level: 1, verified: false, verifiedAt: null, source: 'self' };
+    executor.skills.push(skill);
+  }
+  return skill;
+}
+// 设置/更新技能(自报或系统更新)
+function upsertExecutorSkill(executorId, tag, { level, verified, source }) {
+  if (!SKILL_TAGS[tag]) throw new Error(`未知的技能标签: ${tag},可选: ${Object.keys(SKILL_TAGS).join(', ')}`);
+  const executor = getExecutor(executorId);
+  const skill = getExecutorSkill(executor, tag);
+  const now = new Date().toISOString();
+  if (level != null) {
+    const lv = Number(level);
+    if (!Number.isInteger(lv) || lv < 1 || lv > 5) throw new Error('level 必须是 1-5 的整数');
+    skill.level = lv;
+  }
+  if (source && SKILL_SOURCES.includes(source)) skill.source = source;
+  if (verified === true) {
+    skill.verified = true;
+    skill.verifiedAt = now;
+  } else if (verified === false) {
+    skill.verified = false;
+    skill.verifiedAt = null;
+  }
+  skill.updatedAt = now;
+  executor.updatedAt = now;
+  persistExecutors();
+  return skill;
+}
+// 公开的技能画像(脱敏)
+function publicExecutorSkills(executorId) {
+  const executor = executors.get(String(executorId).trim());
+  if (!executor) return null;
+  ensureExecutorSkills(executor);
+  return {
+    executorId: executor.id,
+    displayName: executor.displayName || null,
+    reliabilityScore: executor.reliabilityScore ?? 100,
+    skills: executor.skills.map((s) => ({
+      tag: s.tag,
+      name: SKILL_TAGS[s.tag]?.name || s.tag,
+      level: s.level, verified: s.verified, verifiedAt: s.verifiedAt, source: s.source,
+    })),
+  };
+}
+
 // ---- v0.8 复合信誉分:公开评价 30% + 私有反馈 50% + 履约数据 20%(借鉴 Upwork JSS) ----
 // 反馈记录:{id, taskId, executorId, bossId, publicScore, publicComment, privateScore, privateNote, taskAmount, createdAt}
 // 私有反馈不对执行者公开,仅用于复合分计算;公开评价对执行者可见
@@ -524,6 +588,84 @@ function persistDisputes() {
   writeFileSync(temporaryFile, JSON.stringify({ version: 1, disputes: [...disputes.values()] }, null, 2));
   renameSync(temporaryFile, disputesFile);
 }
+// ---- v1.2 测评任务:标准化的能力考题,本质是特殊任务(isAssessment=true) ----
+// 测评记录:{id, skillTag, title, description, checklist[], taskId(关联的任务), status, grade, createdAt, ...}
+const assessmentsFile = path.join(dataDirectory, 'assessments.json');
+const assessments = new Map();
+function loadAssessments() {
+  try {
+    const saved = JSON.parse(readFileSync(assessmentsFile, 'utf8'));
+    for (const item of saved.assessments || []) assessments.set(item.id, item);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+function persistAssessments() {
+  mkdirSync(dataDirectory, { recursive: true });
+  const temporaryFile = `${assessmentsFile}.${process.pid}.tmp`;
+  writeFileSync(temporaryFile, JSON.stringify({ version: 1, assessments: [...assessments.values()] }, null, 2));
+  renameSync(temporaryFile, assessmentsFile);
+}
+// 创建测评任务:生成一个 isAssessment=true 的任务 + 测评记录
+function createAssessment({ skillTag, title, description, checklist, budget }, identity) {
+  if (!SKILL_TAGS[skillTag]) throw new Error(`未知的技能标签: ${skillTag},可选: ${Object.keys(SKILL_TAGS).join(', ')}`);
+  const tag = SKILL_TAGS[skillTag];
+  const now = new Date().toISOString();
+  const item = normalize({
+    goal: String(title || `${tag.name}能力测评`).trim(),
+    human_gap: { type: 'DIGITAL_EXECUTION', reason: String(description || tag.description).trim() },
+    capability_requirements: checklist && checklist.length ? checklist : ['按测评检查清单完成并提交证据'],
+    acceptance_criteria: checklist && checklist.length ? checklist : ['完成测评清单'],
+    budget: budget || null,
+  });
+  item.isAssessment = true;
+  item.assessmentSkillTag = skillTag;
+  audit(item, 'ASSESSMENT_CREATED', { actor: 'platform', skillTag, ...auditActor(identity) });
+  requests.set(item.id, item);
+  const assessment = {
+    id: `asm_${randomUUID().slice(0, 8)}`,
+    skillTag, taskId: item.id,
+    title: item.goal, description: String(description || tag.description).trim(),
+    checklist: list(checklist),
+    status: 'OPEN', // OPEN / CLAIMED / DELIVERED / GRADED
+    grade: null, // {score, passed, feedback, gradedAt, gradedBy}
+    createdAt: now, updatedAt: now,
+  };
+  assessments.set(assessment.id, assessment);
+  persist(); persistAssessments();
+  return { assessment, task: item };
+}
+// 测评打分:通过则给执行者该技能认证
+function gradeAssessment(assessmentId, { score, passed, feedback }, identity) {
+  const assessment = assessments.get(String(assessmentId).trim());
+  if (!assessment) return { error: 404 };
+  if (assessment.status === 'GRADED') return { error: 409, message: '该测评已打分' };
+  const sc = Number(score);
+  if (!Number.isInteger(sc) || sc < 1 || sc > 5) return { error: 400, message: 'score 必须是 1-5 的整数' };
+  if (typeof passed !== 'boolean') return { error: 400, message: 'passed (boolean) is required' };
+  const item = requests.get(assessment.taskId);
+  const handlerId = item?.assignment?.handlerId || null;
+  if (!handlerId) return { error: 409, message: '该测评任务还没有执行者认领' };
+  const now = new Date().toISOString();
+  assessment.grade = { score: sc, passed, feedback: String(feedback || '').trim(), gradedAt: now, gradedBy: identity?.keyName || 'platform' };
+  assessment.status = 'GRADED';
+  assessment.updatedAt = now;
+  if (item) {
+    audit(item, 'ASSESSMENT_GRADED', { actor: 'platform', score: sc, passed, ...auditActor(identity) });
+    // 测评任务验收通过也算完成(不走资金结算)
+    if (passed && item.status === 'DELIVERED') {
+      item.status = 'VERIFIED';
+      item.verification = { passed: true, reasons: [], verifiedAt: now, verifiedBy: 'assessment' };
+    }
+    persist();
+  }
+  let skill = null;
+  if (passed) {
+    skill = upsertExecutorSkill(handlerId, assessment.skillTag, { level: sc, verified: true, source: 'assessment' });
+  }
+  persistAssessments();
+  return { assessment, skill, executorId: handlerId };
+}
 function disputeSystemMessage(d, text) {
   const now = new Date().toISOString();
   d.messages.push({ id: `msg_${randomUUID().slice(0, 8)}`, authorId: 'system', authorRole: 'system', text, createdAt: now });
@@ -555,7 +697,7 @@ function checkDisputeEscalation() {
 // ---- v1.1: AI 工头独立 API Key ----
 // 人类走 /api/auth 登录,AI 工头走 API Key:每个工头独立签发、可吊销、可限流、可审计。
 // 旧的 X-HHBA-Internal-Key 继续有效(标记为 legacy,向后兼容)。
-const API_KEY_SCOPES = ['draft', 'publish', 'claim', 'deliver', 'verify', 'feedback', 'dispute', 'admin'];
+const API_KEY_SCOPES = ['draft', 'publish', 'claim', 'deliver', 'verify', 'feedback', 'dispute', 'admin', 'assessment'];
 const DEFAULT_API_KEY_SCOPES = ['draft', 'publish', 'claim', 'deliver'];
 const apiKeysFile = path.join(dataDirectory, 'api-keys.json');
 const apiKeys = new Map(); // id -> record
@@ -969,12 +1111,16 @@ function normalize(input) {
   if (!requirements.length && !legacyCapability) throw new Error('capability_requirements is required');
   if (type === 'REALITY_EXECUTION' && !input.location) throw new Error('location is required for REALITY_EXECUTION');
   const preferredExecutorRaw = input.preferred_executor ?? input.preferredExecutor;
+  // v1.2:任务所需技能标签(用于能力匹配);只保留内置标签
+  const requiredSkills = list(input.requiredSkills ?? input.required_skills)
+    .map((s) => String(s).trim()).filter((s) => SKILL_TAGS[s]);
   return {
     id: `hcr_${randomUUID().slice(0, 8)}`, status: 'DRAFT', goal,
     foreman: normalizeForeman(input),
     agentContext: { sourceAgent: String(input.agent_context?.source_agent || 'unknown').trim(), completedWork: list(input.agent_context?.completed_work) },
     humanGap: { type, reason: String(input.human_gap?.reason || 'Agent identified a human capability gap.').trim() },
     capabilityRequirements: requirements.length ? requirements : [legacyCapability],
+    requiredSkills,
     acceptanceCriteria: list(input.acceptance_criteria ?? input.acceptanceCriteria).map((criterion) => String(criterion).trim()).filter(Boolean),
     preferredExecutor: preferredExecutorRaw != null && String(preferredExecutorRaw).trim() ? String(preferredExecutorRaw).trim() : null,
     deliverables: list(input.deliverables).length ? list(input.deliverables) : ['专业成果文件', '交付说明', '验收依据'],
@@ -1049,6 +1195,7 @@ loadExecutors();
 loadFeedbacks();
 loadDisputes();
 loadApiKeys(); // v1.1
+loadAssessments(); // v1.2
 loadUsers();
 loadSmtp();
 loadSms();
@@ -1144,10 +1291,16 @@ http.createServer(async (request, response) => {
         autoApproveHours: body.autoApproveHours ?? body.auto_approve_hours,
         foreman: body.foreman,
         agent_context: body.agent_context,
+        // v1.2:调用方可指定 requiredSkills;不指定时用模板对应的技能标签
+        requiredSkills: body.requiredSkills ?? body.required_skills ?? null,
       };
       const item = normalize(merged);
       item.templateId = tpl.id;
       item.templateName = tpl.name;
+      if (!item.requiredSkills.length) {
+        const tplSkillTag = Object.keys(SKILL_TAGS).find((tag) => SKILL_TAGS[tag].templateId === tpl.id);
+        if (tplSkillTag) item.requiredSkills = [tplSkillTag];
+      }
       // 预算超出模板建议范围:给出 warning,不阻止
       let budgetWarning = null;
       const amount = budgetAmountOf(item);
@@ -1566,6 +1719,17 @@ http.createServer(async (request, response) => {
           executorScore = adjustReliability(handlerId, 2);
           syncCompositeScore(handlerId); // v0.8:有反馈时用复合信誉分覆盖增量分
           executorScore = getExecutor(handlerId).reliabilityScore;
+          // v1.2:实战积累 — 完成含 requiredSkills 的真实任务且验收通过,source 升级为 task(已认证的不降级)
+          for (const tag of item.requiredSkills || []) {
+            try {
+              const skill = getExecutorSkill(executor, tag);
+              if (!skill.verified && skill.source === 'self') {
+                skill.source = 'task';
+                skill.updatedAt = new Date().toISOString();
+              }
+            } catch { /* 未知标签跳过 */ }
+          }
+          persistExecutors();
         }
         persist();
         return json(response, 200, { requestId: item.id, status: item.status, settledAmount: settled, executorScore });
@@ -1888,6 +2052,133 @@ http.createServer(async (request, response) => {
     keyAudit(rec, 'DELETED', { actor: identity.keyName || identity.kind });
     persistApiKeys();
     return json(response, 200, { deleted: rec.id });
+  }
+
+  // ---- v1.2 真实能力测评 ----
+  // 技能标签列表(公开)
+  if (request.method === 'GET' && request.url === '/api/skill-tags') {
+    return json(response, 200, { tags: Object.values(SKILL_TAGS), total: Object.keys(SKILL_TAGS).length });
+  }
+  // 创建测评任务(需 admin 或 assessment scope;legacy/ops 向后兼容)
+  if (request.method === 'POST' && request.url === '/internal/assessments') {
+    const identity = requireInternal(request, response);
+    if (!identity) return;
+    if (identity.kind === 'api-key') {
+      const scopes = identity.scopes || [];
+      if (!scopes.includes('admin') && !scopes.includes('assessment')) {
+        return json(response, 403, { error: 'missing required scope: admin or assessment' });
+      }
+    }
+    try {
+      const body = await readBody(request);
+      const { assessment, task } = createAssessment({
+        skillTag: String(body.skillTag ?? body.skill_tag ?? '').trim(),
+        title: body.title,
+        description: body.description,
+        checklist: body.checklist,
+        budget: body.budget,
+      }, identity);
+      return json(response, 201, { assessment, taskId: task.id, taskStatus: task.status });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+  // 测评任务列表(需 internal;api-key 需 admin 或 assessment scope)
+  if (request.method === 'GET' && request.url === '/internal/assessments') {
+    const identity = requireInternal(request, response);
+    if (!identity) return;
+    if (identity.kind === 'api-key') {
+      const scopes = identity.scopes || [];
+      if (!scopes.includes('admin') && !scopes.includes('assessment')) {
+        return json(response, 403, { error: 'missing required scope: admin or assessment' });
+      }
+    }
+    const list = [...assessments.values()].map((a) => ({ ...a }));
+    return json(response, 200, { assessments: list, total: list.length });
+  }
+  // 测评打分(需 admin 或 assessment scope;legacy/ops 向后兼容)
+  const gradeMatch = request.url.match(/^\/internal\/assessments\/([^/]+)\/grade$/);
+  if (gradeMatch && request.method === 'POST') {
+    const identity = requireInternal(request, response);
+    if (!identity) return;
+    if (identity.kind === 'api-key') {
+      const scopes = identity.scopes || [];
+      if (!scopes.includes('admin') && !scopes.includes('assessment')) {
+        return json(response, 403, { error: 'missing required scope: admin or assessment' });
+      }
+    }
+    try {
+      const body = await readBody(request);
+      const result = gradeAssessment(gradeMatch[1], {
+        score: body.score,
+        passed: body.passed,
+        feedback: body.feedback,
+      }, identity);
+      if (result.error) return json(response, result.error, { error: result.message || 'grade failed' });
+      return json(response, 200, {
+        assessment: result.assessment,
+        executorId: result.executorId,
+        skill: result.skill,
+        certified: Boolean(result.skill),
+      });
+    } catch (error) { return json(response, 400, { error: error.message }); }
+  }
+  // 任务候选人推荐:按技能匹配度排序(需 internal)
+  const candidatesMatch = request.url.match(/^\/internal\/tasks\/([^/]+)\/candidates$/);
+  if (candidatesMatch && request.method === 'GET') {
+    const identity = requireInternal(request, response);
+    if (!identity) return;
+    const item = find(candidatesMatch[1], response);
+    if (!item) return;
+    const required = item.requiredSkills || [];
+    const candidates = [...executors.values()].map((ex) => {
+      ensureExecutorSkills(ex);
+      const matchedSkills = required.filter((tag) => ex.skills.some((s) => s.tag === tag));
+      const verifiedCount = matchedSkills.filter((tag) => ex.skills.find((s) => s.tag === tag)?.verified).length;
+      const matchScore = required.length
+        ? Math.round((matchedSkills.length / required.length) * 100)
+        : 100;
+      return {
+        executorId: ex.id,
+        displayName: ex.displayName || null,
+        reliabilityScore: ex.reliabilityScore ?? 100,
+        completedTasks: ex.completedTasks ?? 0,
+        matchedSkills,
+        verifiedCount,
+        matchScore,
+        skills: ex.skills.map((s) => ({ tag: s.tag, level: s.level, verified: s.verified, source: s.source })),
+      };
+    });
+    // 排序:verified 认证数 > 匹配度 > 可靠分 > 完成数
+    candidates.sort((a, b) =>
+      (b.verifiedCount - a.verifiedCount) ||
+      (b.matchScore - a.matchScore) ||
+      ((b.reliabilityScore ?? 100) - (a.reliabilityScore ?? 100)) ||
+      ((b.completedTasks ?? 0) - (a.completedTasks ?? 0)));
+    return json(response, 200, { taskId: item.id, requiredSkills: required, candidates, total: candidates.length });
+  }
+  // 查看某执行者的技能画像(公开)
+  const execSkillsMatch = request.url.match(/^\/api\/executors\/([^/]+)\/skills$/);
+  if (execSkillsMatch && request.method === 'GET') {
+    const profile = publicExecutorSkills(decodeURIComponent(execSkillsMatch[1]).trim());
+    if (!profile) return json(response, 404, { error: 'executor not found' });
+    return json(response, 200, profile);
+  }
+  // 执行者自报技能(需用户登录)
+  if (request.method === 'POST' && request.url === '/api/executors/me/skills') {
+    const session = getUserSession(request);
+    if (!session) return json(response, 401, { error: '请先登录' });
+    try {
+      const body = await readBody(request);
+      const tag = String(body.tag ?? '').trim();
+      if (!SKILL_TAGS[tag]) return json(response, 400, { error: `未知的技能标签: ${tag || '(空)'},可选: ${Object.keys(SKILL_TAGS).join(', ')}` });
+      const level = Number(body.level);
+      if (!Number.isInteger(level) || level < 1 || level > 5) return json(response, 400, { error: 'level 必须是 1-5 的整数' });
+      const executor = getExecutor(session.userId);
+      const existing = executor.skills?.find((s) => s.tag === tag);
+      // 已有认证的不允许自报覆盖
+      if (existing?.verified) return json(response, 409, { error: '该技能已通过认证,无需自报' });
+      const skill = upsertExecutorSkill(session.userId, tag, { level, verified: false, source: 'self' });
+      return json(response, 200, { skill, note: '自报技能需通过测评或实战积累才能获得认证' });
+    } catch (error) { return json(response, 400, { error: error.message }); }
   }
 
   // ---- v1.0 纠纷模块:三级纠纷处理(双方协商 -> 平台仲裁 -> 终审) ----
