@@ -143,6 +143,83 @@ async function sendOtpEmail(to, code) {
   });
 }
 
+// v1.3: 任务状态变更邮件通知 — SMTP 未配置或收件人无邮箱时静默跳过,发送失败不阻塞主流程
+function getUserEmail(userId) {
+  if (!userId) return null;
+  const user = typeof getUser === 'function' ? getUser(userId) : users.get(String(userId).trim());
+  if (!user || !Array.isArray(user.contacts)) return null;
+  const email = user.contacts.find((c) => c && c.type === 'email' && c.value);
+  return email ? String(email.value).trim().toLowerCase() : null;
+}
+function getBossEmail(item) {
+  // 优先级:任务上的 bossEmail > foreman 留的联系方式 > 跳过
+  if (item.bossEmail && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(item.bossEmail))) return String(item.bossEmail).trim().toLowerCase();
+  const f = item.foreman || {};
+  for (const key of ['email', 'contactEmail']) {
+    if (f[key] && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(f[key]))) return String(f[key]).trim().toLowerCase();
+  }
+  return null;
+}
+const TASK_EVENT_MAIL = {
+  CLAIMED: (item, extra) => ({
+    subject: `【HHBA】你的任务已被认领: ${item.goal?.slice(0, 30)}`,
+    text: [`你的任务已被执行者认领:`, ``, `任务: ${item.goal}`, `任务 ID: ${item.id}`, `认领人: ${extra.handlerName || extra.handlerId || '未知'}`, `认领时间: ${new Date().toLocaleString('zh-CN')}`, ``, `查看任务大厅: /tasks.html`].join('\n'),
+  }),
+  DELIVERED: (item) => ({
+    subject: `【HHBA】任务已交付,请验收: ${item.goal?.slice(0, 30)}`,
+    text: [`执行者已提交交付物,请尽快验收:`, ``, `任务: ${item.goal}`, `任务 ID: ${item.id}`, `交付时间: ${new Date().toLocaleString('zh-CN')}`, ``, `72 小时内未处理将自动验收通过。`, `查看任务大厅: /tasks.html`].join('\n'),
+  }),
+  VERIFIED: (item, extra) => ({
+    subject: `【HHBA】验收通过,积分已结算: ${item.goal?.slice(0, 30)}`,
+    text: [`恭喜!你的交付已通过验收:`, ``, `任务: ${item.goal}`, `任务 ID: ${item.id}`, extra.settledAmount > 0 ? `结算积分: ${extra.settledAmount}` : '', ``, `查看我的任务: /tasks.html`].filter(Boolean).join('\n'),
+  }),
+  REWORK: (item, extra) => ({
+    subject: `【HHBA】交付被打回,请重做: ${item.goal?.slice(0, 30)}`,
+    text: [`你的交付被打回,需要重做:`, ``, `任务: ${item.goal}`, `任务 ID: ${item.id}`, `打回理由: ${(extra.reasons || []).join('、') || '未注明'}`, ``, `请尽快重新交付。`, `查看我的任务: /tasks.html`].join('\n'),
+  }),
+  DISPUTE_OPENED: (item, extra) => ({
+    subject: `【HHBA】纠纷已发起: ${item.goal?.slice(0, 30)}`,
+    text: [`任务 ${item.id} 已发起纠纷,进入协商阶段:`, ``, `任务: ${item.goal}`, `发起方: ${extra.raisedBy || '未知'}`, `原因: ${extra.reason || '未注明'}`, ``, `48 小时内未解决将自动升级到平台仲裁。`].join('\n'),
+  }),
+  DISPUTE_RESOLVED: (item, extra) => ({
+    subject: `【HHBA】纠纷已解决: ${item.goal?.slice(0, 30)}`,
+    text: [`任务 ${item.id} 的纠纷已有结论:`, ``, `任务: ${item.goal}`, `结论: ${extra.resolution || '未知'}`, extra.note ? `备注: ${extra.note}` : '', ``, `如有异议请联系平台。`].filter(Boolean).join('\n'),
+  }),
+};
+async function notifyTaskEvent(item, event, extra = {}) {
+  try {
+    if (!smtpConfig?.host || !smtpConfig?.user || !smtpConfig?.pass) return; // 未配置则静默跳过
+    const tpl = TASK_EVENT_MAIL[event];
+    if (!tpl) return;
+    const { subject, text } = tpl(item, extra);
+    const recipients = new Set();
+    if (event === 'CLAIMED' || event === 'DELIVERED') {
+      const boss = getBossEmail(item);
+      if (boss) recipients.add(boss);
+    } else if (event === 'VERIFIED' || event === 'REWORK') {
+      const handlerId = item.assignment?.handlerId;
+      const email = getUserEmail(handlerId);
+      if (email) recipients.add(email);
+    } else if (event === 'DISPUTE_OPENED' || event === 'DISPUTE_RESOLVED') {
+      const boss = getBossEmail(item);
+      if (boss) recipients.add(boss);
+      const handlerId = item.assignment?.handlerId || extra.executorId;
+      const email = getUserEmail(handlerId);
+      if (email) recipients.add(email);
+    }
+    if (!recipients.size) return;
+    const transporter = nodemailer.createTransport({
+      host: smtpConfig.host, port: Number(smtpConfig.port) || 465, secure: true,
+      auth: { user: smtpConfig.user, pass: smtpConfig.pass },
+    });
+    for (const to of recipients) {
+      await transporter.sendMail({ from: `"HHBA" <${smtpConfig.user}>`, to, subject, text });
+    }
+  } catch (error) {
+    console.error(`[notify] ${event} 邮件发送失败:`, error.message); // 不阻塞主流程
+  }
+}
+
 function loadRequests() {
   try {
     const saved = JSON.parse(readFileSync(dataFile, 'utf8'));
@@ -1144,6 +1221,14 @@ const REJECT_REASONS = {
   SPAM: '明显零付出/灌水',
 };
 // v0.7: 超时自动批准 — 扫描 DELIVERED 超时的任务，自动验收通过
+// v1.3: 超时阈值常量(小时),方便调整
+const TIMEOUT_HOURS = {
+  DELIVERED_AUTO_APPROVE: 72,   // 交付后无人验收 → 自动通过
+  MATCHING_NO_CLAIM: 48,        // 无人认领 → 自动取消
+  IN_PROGRESS_NO_DELIVERY: 72,  // 执行者消失 → 标记过期
+  AWAITING_APPROVAL: 24,        // 无人确认 → 自动取消
+  REWORK_NO_REDELIVERY: 72,     // 打回后未重交 → 标记过期
+};
 function checkAutoApprove() {
   const now = Date.now();
   let autoApproved = 0;
@@ -1172,6 +1257,57 @@ function checkAutoApprove() {
   }
   if (autoApproved > 0) persist();
   return autoApproved;
+}
+
+// v1.3: 全状态超时回收 — 扫描卡在各状态超时的任务,自动取消/过期并解冻资金
+// 测评任务(isAssessment=true)不适用(平台行为,不冻结真实资金)
+function checkTimeouts() {
+  const now = Date.now();
+  const stats = { cancelledNoClaim: 0, expiredNoDelivery: 0, cancelledNoApproval: 0, expiredRework: 0 };
+  let changed = false;
+  for (const item of requests.values()) {
+    if (item.isAssessment) continue;
+    const elapsed = (since) => since && now - new Date(since).getTime();
+    // MATCHING_CAPABILITY 48h 无人认领 → 取消 + 解冻
+    if (item.status === 'MATCHING_CAPABILITY' && elapsed(item.publishedAt) > TIMEOUT_HOURS.MATCHING_NO_CLAIM * 3600 * 1000) {
+      const amount = item.frozenAmount || 0;
+      if (amount > 0) { try { unfreezeCredits(item.id, amount, '超时无人认领,自动取消解冻'); } catch (e) { console.error('[timeout] unfreeze failed:', e.message); } item.frozenAmount = 0; }
+      item.status = 'CANCELLED';
+      audit(item, 'AUTO_CANCELLED_NO_CLAIM', { actor: 'system', reason: `超过 ${TIMEOUT_HOURS.MATCHING_NO_CLAIM}h 无人认领,自动取消` });
+      stats.cancelledNoClaim++; changed = true;
+      continue;
+    }
+    // IN_PROGRESS 72h 无交付 → 过期 + 解冻 + 扣分
+    if (item.status === 'IN_PROGRESS' && elapsed(item.assignment?.claimedAt) > TIMEOUT_HOURS.IN_PROGRESS_NO_DELIVERY * 3600 * 1000) {
+      const amount = item.frozenAmount || 0;
+      if (amount > 0) { try { unfreezeCredits(item.id, amount, '执行者超时未交付,自动过期解冻'); } catch (e) { console.error('[timeout] unfreeze failed:', e.message); } item.frozenAmount = 0; }
+      const handlerId = item.assignment?.handlerId;
+      if (handlerId) adjustReliability(handlerId, -5);
+      item.status = 'EXPIRED';
+      audit(item, 'AUTO_EXPIRED_NO_DELIVERY', { actor: 'system', reason: `超过 ${TIMEOUT_HOURS.IN_PROGRESS_NO_DELIVERY}h 未交付,自动过期`, handlerId });
+      stats.expiredNoDelivery++; changed = true;
+      continue;
+    }
+    // AWAITING_USER_APPROVAL 24h 无人确认 → 取消(此时未冻结,无需解冻)
+    if (item.status === 'AWAITING_USER_APPROVAL' && elapsed(item.approval?.requestedAt || item.updatedAt) > TIMEOUT_HOURS.AWAITING_APPROVAL * 3600 * 1000) {
+      item.status = 'CANCELLED';
+      audit(item, 'AUTO_CANCELLED_NO_APPROVAL', { actor: 'system', reason: `超过 ${TIMEOUT_HOURS.AWAITING_APPROVAL}h 无人确认,自动取消` });
+      stats.cancelledNoApproval++; changed = true;
+      continue;
+    }
+    // REWORK 72h 未重新交付 → 过期 + 解冻 + 扣分
+    if (item.status === 'REWORK' && elapsed(item.verification?.verifiedAt) > TIMEOUT_HOURS.REWORK_NO_REDELIVERY * 3600 * 1000) {
+      const amount = item.frozenAmount || 0;
+      if (amount > 0) { try { unfreezeCredits(item.id, amount, '打回后超时未重交,自动过期解冻'); } catch (e) { console.error('[timeout] unfreeze failed:', e.message); } item.frozenAmount = 0; }
+      const handlerId = item.assignment?.handlerId;
+      if (handlerId) adjustReliability(handlerId, -5);
+      item.status = 'EXPIRED';
+      audit(item, 'AUTO_EXPIRED_REWORK_TIMEOUT', { actor: 'system', reason: `打回后超过 ${TIMEOUT_HOURS.REWORK_NO_REDELIVERY}h 未重新交付,自动过期`, handlerId });
+      stats.expiredRework++; changed = true;
+    }
+  }
+  if (changed) persist();
+  return stats;
 }
 function hasInternalAccess(request) {
   if (request.headers['x-hhba-internal-key'] === internalApiKey) return true;
@@ -1214,6 +1350,12 @@ http.createServer(async (request, response) => {
         const created = (item.audit || []).find((e) => e.event === 'DRAFT_CREATED');
         if (created) Object.assign(created, auditActor(draftIdentity));
         else audit(item, 'DRAFT_CREATED', { ...auditActor(draftIdentity) });
+      }
+      // v1.3: 如果是登录用户创建的草案,记录老板邮箱用于任务通知
+      const draftSession = getUserSession(request);
+      if (draftSession) {
+        const bossEmail = getUserEmail(draftSession.userId);
+        if (bossEmail) item.bossEmail = bossEmail;
       }
       persist();
       const policyCheck = evaluatePolicy(item);
@@ -1470,6 +1612,7 @@ http.createServer(async (request, response) => {
     item.assignment = { handlerId: session.userId, handlerDisplayName: executor.displayName, claimedAt: new Date().toISOString() };
     audit(item, 'CAPABILITY_CLAIMED', { actor: session.userId, via: 'user_login' });
     persist();
+    notifyTaskEvent(item, 'CLAIMED', { handlerId: session.userId, handlerName: executor.displayName }); // v1.3: 通知老板
     return json(response, 200, { requestId: item.id, status: item.status, assignment: item.assignment });
   }
 
@@ -1513,6 +1656,7 @@ http.createServer(async (request, response) => {
       item.deliveredAt = new Date().toISOString();
       item.deliverableBundle = { submittedAt: new Date().toISOString(), summary: String(body.summary || '').trim(), artifacts, evidence, structuredAnswers: body.structured_answers || {}, acceptanceNotes: String(body.acceptance_notes || '').trim() };
       audit(item, 'DELIVERABLE_SUBMITTED', { actor: session.userId }); persist();
+      notifyTaskEvent(item, 'DELIVERED', {}); // v1.3: 通知老板验收
       return json(response, 201, { requestId: item.id, status: item.status });
     } catch (error) { return json(response, 400, { error: error.message }); }
   }
@@ -1709,8 +1853,7 @@ http.createServer(async (request, response) => {
         audit(item, 'VERIFY_PASSED', { actor: 'foreman', reasons, ...auditActor(verifyIdentity) });
         let settled = 0;
         if (handlerId && amount > 0) {
-          settled = settleCredits(item.id, amount, handlerId);
-          item.frozenAmount = 0;
+          settled = settleCredits(item.id, amount, handlerId);          item.frozenAmount = 0;
         }
         let executorScore = null;
         if (handlerId) {
@@ -1732,6 +1875,7 @@ http.createServer(async (request, response) => {
           persistExecutors();
         }
         persist();
+        notifyTaskEvent(item, 'VERIFIED', { settledAmount: settled }); // v1.3: 通知执行者
         return json(response, 200, { requestId: item.id, status: item.status, settledAmount: settled, executorScore });
       }
       item.status = 'REWORK';
@@ -1751,6 +1895,7 @@ http.createServer(async (request, response) => {
         executorScore = getExecutor(handlerId).reliabilityScore;
       }
       persist();
+      notifyTaskEvent(item, 'REWORK', { reasons }); // v1.3: 通知执行者重做
       return json(response, 200, { requestId: item.id, status: item.status, refundedAmount: refunded, executorScore });
     } catch (error) { return json(response, 400, { error: error.message }); }
   }
@@ -1909,6 +2054,7 @@ http.createServer(async (request, response) => {
         if (item.assignment.handlerDisplayName) executor.displayName = item.assignment.handlerDisplayName;
         persistExecutors();
         audit(item, 'CAPABILITY_CLAIMED', { actor: handlerId, ...auditActor(opIdentity) }); persist();
+        notifyTaskEvent(item, 'CLAIMED', { handlerId, handlerName: item.assignment.handlerDisplayName }); // v1.3: 通知老板
         return json(response, 201, { requestId: id, status: item.status, assignment: item.assignment });
       }
       if (action === 'deliver') {
@@ -1931,6 +2077,7 @@ http.createServer(async (request, response) => {
         item.deliveredAt = new Date().toISOString();
         item.deliverableBundle = { submittedAt: new Date().toISOString(), summary: String(body.summary || '').trim(), artifacts, evidence, structuredAnswers: body.structured_answers || {}, acceptanceNotes: String(body.acceptance_notes || '').trim() };
         audit(item, 'DELIVERABLE_SUBMITTED', { actor: item.assignment?.handlerId || 'hhba-internal', ...auditActor(opIdentity) }); persist();
+        notifyTaskEvent(item, 'DELIVERED', {}); // v1.3: 通知老板验收
         return json(response, 201, { requestId: id, status: item.status });
       }
       return json(response, 404, { error: 'internal operation not found' });
@@ -1938,6 +2085,16 @@ http.createServer(async (request, response) => {
   }
 
   // ---- v1.1: AI 工头 API Key 管理(需 admin scope;legacy key / ops session 向后兼容) ----
+  // v1.3: 手动触发维护任务(超时检查等),需 admin scope
+  if (request.method === 'POST' && request.url === '/internal/maintenance/run') {
+    const identity = requireInternal(request, response, 'admin');
+    if (!identity) return;
+    const autoApproved = checkAutoApprove();
+    const timeouts = checkTimeouts();
+    const disputesEscalated = typeof checkDisputeEscalation === 'function' ? checkDisputeEscalation() : 0;
+    console.log(`[maintenance] manual run by ${identity.kind || 'internal'}: autoApproved=${autoApproved}, timeouts=${JSON.stringify(timeouts)}, disputesEscalated=${disputesEscalated}`);
+    return json(response, 200, { autoApproved, timeouts, disputesEscalated, at: new Date().toISOString() });
+  }
   // 签发新 key:明文 key 只在本次响应返回,服务端只存 SHA256 哈希
   if (request.method === 'POST' && request.url === '/internal/api-keys') {
     const identity = requireInternal(request, response, 'admin');
@@ -2218,6 +2375,7 @@ http.createServer(async (request, response) => {
       persistDisputes();
       audit(item, 'DISPUTE_FILED', { actor: session.userId, disputeId: dispute.id, reason });
       persist();
+      notifyTaskEvent(item, 'DISPUTE_OPENED', { raisedBy: session.userId, reason }); // v1.3: 通知双方
       return json(response, 201, { dispute });
     } catch (error) { return json(response, 400, { error: error.message }); }
   }
@@ -2297,7 +2455,7 @@ http.createServer(async (request, response) => {
       d.updatedAt = now;
       persistDisputes();
       const item = requests.get(d.taskId);
-      if (item) { audit(item, 'DISPUTE_RESOLVED_MUTUAL', { actor: 'mutual', disputeId: d.id }); persist(); }
+      if (item) { audit(item, 'DISPUTE_RESOLVED_MUTUAL', { actor: 'mutual', disputeId: d.id }); persist(); notifyTaskEvent(item, 'DISPUTE_RESOLVED', { resolution: '双方协商一致', executorId: d.executorId }); }
       return json(response, 200, { dispute: d, resolved: true });
     }
     d.updatedAt = now;
@@ -2383,6 +2541,7 @@ http.createServer(async (request, response) => {
         d.status = 'RESOLVED';
         d.updatedAt = now;
         persistDisputes();
+        { const item2 = requests.get(d.taskId); if (item2) notifyTaskEvent(item2, 'DISPUTE_RESOLVED', { resolution: d.resolution?.outcome, note: d.resolution?.note, executorId: d.executorId }); }
         return json(response, 200, { dispute: d });
       }
       if (d.level === 3 && d.status === 'ESCALATED') {
@@ -2408,6 +2567,7 @@ http.createServer(async (request, response) => {
         d.resolution = { outcome: decision === 'EXECUTOR' ? 'FINAL_EXECUTOR' : 'FINAL_BOSS', note: note || '终审裁决(最终结果)', decidedBy: 'platform-final', decidedAt: now };
         d.updatedAt = now;
         persistDisputes();
+        { const item3 = requests.get(d.taskId); if (item3) notifyTaskEvent(item3, 'DISPUTE_RESOLVED', { resolution: d.resolution.outcome, note: d.resolution.note, executorId: d.executorId }); }
         return json(response, 200, { dispute: d });
       }
       return json(response, 409, { error: `当前纠纷不可仲裁:${d.level}/${d.status}` });
@@ -2433,6 +2593,7 @@ http.createServer(async (request, response) => {
       item.approval = {
         sessionId, sessionSecret, token: null,
         expiresAt: new Date(Date.now() + approvalLifetimeMs).toISOString(),
+        requestedAt: new Date().toISOString(), // v1.3: 人工确认请求时间,用于超时回收
         browserConfirmedAt: null, consumedAt: null
       };
       audit(item, 'BROWSER_CONFIRMATION_STARTED', { actor: 'browser' }); persist();
@@ -2496,10 +2657,14 @@ http.createServer(async (request, response) => {
 
 // v0.7: 每 5 分钟检查一次超时未验收的任务，自动批准
 // v1.0: 顺带检查 Level 1 协商超时的纠纷，自动升级到平台仲裁
+// v1.3: 顺带检查全状态超时(无人认领/执行者消失/无人确认/打回未重交),自动回收
 setInterval(() => {
   try {
     const n = checkAutoApprove();
     if (n > 0) console.log(`[auto-approve] ${n} 个超时任务已自动验收`);
+    const t = checkTimeouts();
+    const tTotal = t.cancelledNoClaim + t.expiredNoDelivery + t.cancelledNoApproval + t.expiredRework;
+    if (tTotal > 0) console.log(`[timeout] 超时回收:`, JSON.stringify(t));
     const m = checkDisputeEscalation();
     if (m > 0) console.log(`[dispute] ${m} 个协商超时纠纷已升级到平台仲裁`);
   } catch (e) { console.error('[auto-approve] error:', e.message); }
